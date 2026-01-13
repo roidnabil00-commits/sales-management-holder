@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { FileText, Plus, Trash2, Printer, ArrowRightCircle, Send } from 'lucide-react'
+import { FileText, Plus, Trash2, Printer, ArrowRightCircle, Calendar, Hash } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
@@ -15,7 +15,7 @@ type Quotation = {
   order_no: string; 
   customer: { name: string }; 
   total_amount: number; 
-  created_at: string;
+  created_at: string; // Tanggal Surat
   status: string;
 }
 
@@ -32,20 +32,32 @@ export default function QuotationPage() {
   const [selectedProduct, setSelectedProduct] = useState('')
   const [inputQty, setInputQty] = useState(1)
   
-  // Tambahan Khusus Penawaran
-  const [subject, setSubject] = useState('Penawaran Harga Produk Bakery') // Perihal
-  const [notes, setNotes] = useState('1. Harga berlaku selama 14 hari.\n2. Pembayaran DP 50% diawal.\n3. Barang yang sudah dibeli tidak dapat ditukar.') // Klausul Kontrak
+  // State Detail Surat (Updated: No Surat & Tanggal)
+  const [subject, setSubject] = useState('Penawaran Harga Produk Bakery')
+  const [notes, setNotes] = useState('1. Harga berlaku selama 14 hari.\n2. Pembayaran DP 50% diawal.\n3. Barang yang sudah dibeli tidak dapat ditukar.')
+  
+  // NEW: State untuk Custom Input
+  const [customOrderNo, setCustomOrderNo] = useState('') // Nomor Surat Manual
+  const [customDate, setCustomDate] = useState('')       // Tanggal Manual
 
   useEffect(() => {
     fetchInitialData()
   }, [])
+
+  // Set default tanggal hari ini saat form dibuka
+  useEffect(() => {
+    if (isFormOpen) {
+      const today = new Date().toISOString().split('T')[0]
+      setCustomDate(today)
+      setCustomOrderNo(`Q-${Date.now().toString().slice(-6)}`) // Default Auto
+    }
+  }, [isFormOpen])
 
   const fetchInitialData = async () => {
     setLoading(true)
     const { data: custData } = await supabase.from('customers').select('id, name, address, phone')
     const { data: prodData } = await supabase.from('products').select('*').eq('is_active', true)
     
-    // Ambil data yang doc_type = 'quotation'
     const { data: quoteData } = await supabase
       .from('orders')
       .select('id, order_no, total_amount, created_at, status, customer:customers(name)')
@@ -58,7 +70,7 @@ export default function QuotationPage() {
     setLoading(false)
   }
 
-  // --- LOGIC KERANJANG (Sama) ---
+  // --- LOGIC KERANJANG ---
   const addToCart = () => {
     if (!selectedProduct) return
     const product = products.find(p => p.id === parseInt(selectedProduct))
@@ -86,10 +98,10 @@ export default function QuotationPage() {
 
   const grandTotal = cart.reduce((total, item) => total + (item.price * item.qty), 0)
 
-  // --- LOGIC SIMPAN PENAWARAN ---
+  // --- LOGIC SIMPAN PENAWARAN (UPDATED) ---
   const handleSaveQuotation = async () => {
-    if (!selectedCustomerId || cart.length === 0) {
-      alert('Lengkapi data pelanggan dan barang!')
+    if (!selectedCustomerId || cart.length === 0 || !customOrderNo || !customDate) {
+      alert('Lengkapi data pelanggan, nomor surat, tanggal, dan barang!')
       return
     }
 
@@ -97,16 +109,17 @@ export default function QuotationPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Sesi habis.')
 
-      // 1. Simpan Header (doc_type: quotation)
+      // 1. Simpan Header dengan Data Custom
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .insert([{
             customer_id: parseInt(selectedCustomerId),
             sales_id: user.id,
-            doc_type: 'quotation', // <--- PENTING
-            status: 'draft', // Status awal Draft
+            doc_type: 'quotation',
+            status: 'draft',
             total_amount: grandTotal,
-            order_no: `Q-${Date.now().toString().slice(-6)}` 
+            order_no: customOrderNo,           // <--- Pakai Inputan User
+            created_at: new Date(customDate).toISOString() // <--- Pakai Tanggal User
           }])
         .select().single()
 
@@ -136,31 +149,50 @@ export default function QuotationPage() {
     }
   }
 
+  // --- LOGIC HAPUS PENAWARAN (NEW) ---
+  const handleDeleteQuotation = async (id: number) => {
+    if (!confirm('Yakin hapus penawaran ini? Data tidak bisa dikembalikan.')) return
+
+    try {
+      // Hapus Item Dulu (Foreign Key)
+      await supabase.from('order_items').delete().eq('order_id', id)
+      // Hapus Header Order
+      const { error } = await supabase.from('orders').delete().eq('id', id)
+
+      if (error) throw error
+      
+      alert('Penawaran berhasil dihapus.')
+      fetchInitialData()
+    } catch (error: any) {
+      alert('Gagal hapus: ' + error.message)
+    }
+  }
+
   // --- LOGIC CONVERT KE SALES ORDER ---
   const convertToOrder = async (quoteId: number) => {
     if(!confirm('Deal? Ubah Penawaran ini menjadi Pesanan Penjualan (SO)?')) return;
 
     try {
-      // Ubah doc_type jadi 'sales_order' dan status jadi 'pending'
       const { error } = await supabase
         .from('orders')
         .update({ 
           doc_type: 'sales_order', 
           status: 'pending',
-          order_no: `SO-${Date.now().toString().slice(-6)}` // Generate No Baru
+          order_no: `SO-${Date.now().toString().slice(-6)}`,
+          created_at: new Date().toISOString() // Reset tanggal jadi hari ini (tanggal deal)
         })
         .eq('id', quoteId)
 
       if (error) throw error
 
       alert('Berhasil! Penawaran sudah menjadi Pesanan. Cek menu Pesanan (SO).')
-      fetchInitialData() // Refresh list (harusnya hilang dari list penawaran)
+      fetchInitialData()
     } catch (err: any) {
       alert('Gagal convert: ' + err.message)
     }
   }
 
-  // --- CETAK PDF PENAWARAN (FORMAT SURAT RESMI) ---
+  // --- CETAK PDF PENAWARAN ---
   const generateProposalPDF = async (orderId: number) => {
     const { data: order } = await supabase
       .from('orders')
@@ -176,10 +208,13 @@ export default function QuotationPage() {
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     doc.text('Jl. Teknologi Masa Depan No. 1, Jakarta Selatan', 14, 26)
     doc.text('Email: sales@xander.com | Telp: 021-555-888', 14, 31)
-    doc.line(14, 35, 196, 35) // Garis pembatas
+    doc.line(14, 35, 196, 35)
 
     // TANGGAL & TUJUAN
-    doc.text(`Jakarta, ${new Date().toLocaleDateString('id-ID', {dateStyle: 'long'})}`, 140, 45)
+    const suratDate = new Date(order.created_at).toLocaleDateString('id-ID', {
+      day: 'numeric', month: 'long', year: 'numeric'
+    })
+    doc.text(`Jakarta, ${suratDate}`, 140, 45)
     
     doc.text('Kepada Yth,', 14, 45)
     doc.setFont('helvetica', 'bold')
@@ -187,16 +222,17 @@ export default function QuotationPage() {
     doc.setFont('helvetica', 'normal')
     doc.text(order.customer.address || '', 14, 55)
 
-    // PERIHAL
+    // NOMOR SURAT & PERIHAL
     doc.setFont('helvetica', 'bold')
-    doc.text(`Perihal: ${subject}`, 14, 70)
+    doc.text(`Nomor   : ${order.order_no}`, 14, 65) // Tampilkan Nomor Surat Custom
+    doc.text(`Perihal : ${subject}`, 14, 70)
     
     // PEMBUKAAN
     doc.setFont('helvetica', 'normal')
     doc.text('Dengan hormat,', 14, 80)
     doc.text('Bersama ini kami mengajukan penawaran harga untuk produk bakery dengan rincian sebagai berikut:', 14, 86)
 
-    // TABEL PRODUK
+    // TABEL
     const tableRows = order.items.map((item: any) => [
       item.product.name,
       `${item.qty} ${item.product.unit}`,
@@ -219,19 +255,17 @@ export default function QuotationPage() {
     doc.setFont('helvetica', 'bold')
     doc.text(`Total Penawaran: Rp ${order.total_amount.toLocaleString()}`, 140, finalY)
 
-    // SYARAT & KETENTUAN (KONTRAK)
+    // SYARAT
     doc.setFontSize(10)
     doc.text('Syarat dan Ketentuan:', 14, finalY + 15)
     doc.setFont('helvetica', 'normal')
-    
-    // Split text biar rapi kalau panjang
     const splitNotes = doc.splitTextToSize(notes, 180)
     doc.text(splitNotes, 14, finalY + 22)
 
     // PENUTUP
     doc.text('Demikian penawaran ini kami sampaikan. Atas perhatian dan kerjasamanya kami ucapkan terima kasih.', 14, finalY + 45)
 
-    // TANDA TANGAN
+    // TTD
     doc.text('Hormat Kami,', 14, finalY + 60)
     doc.text('Xander Sales Team', 14, finalY + 85)
 
@@ -242,10 +276,10 @@ export default function QuotationPage() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Penawaran (Quotation)</h2>
-          <p className="text-sm text-gray-500">Buat surat penawaran & kontrak resmi</p>
+          <h2 className="text-2xl font-bold text-gray-900">Penawaran (Quotation)</h2>
+          <p className="text-sm text-gray-600">Buat surat penawaran & kontrak resmi</p>
         </div>
-        <button onClick={() => setIsFormOpen(true)} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 shadow-lg">
+        <button onClick={() => setIsFormOpen(true)} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 shadow-lg font-medium transition">
           <Plus size={18} /> Buat Penawaran
         </button>
       </div>
@@ -258,19 +292,33 @@ export default function QuotationPage() {
           quotations.map((q) => (
             <div key={q.id} className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4 hover:shadow-md transition">
               <div>
-                <div className="flex items-center gap-2">
-                   <h4 className="font-bold text-gray-800">{q.customer?.name}</h4>
-                   <span className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-100">{q.order_no}</span>
+                <div className="flex items-center gap-2 mb-1">
+                   <h4 className="font-bold text-gray-900 text-lg">{q.customer?.name}</h4>
+                   <span className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-100 font-medium">
+                     {q.order_no}
+                   </span>
                 </div>
-                <p className="text-sm text-gray-500">Total: Rp {q.total_amount.toLocaleString()}</p>
-                <p className="text-xs text-gray-400">{new Date(q.created_at).toLocaleDateString()}</p>
+                <div className="text-sm text-gray-600 flex items-center gap-4">
+                  <span>Total: <span className="font-bold">Rp {q.total_amount.toLocaleString()}</span></span>
+                  <span className="text-gray-300">|</span>
+                  <span>Tgl: {new Date(q.created_at).toLocaleDateString('id-ID')}</span>
+                </div>
               </div>
               
               <div className="flex gap-2">
-                <button onClick={() => generateProposalPDF(q.id)} className="px-3 py-2 border rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-2 text-sm" title="Cetak Surat">
+                {/* Tombol Hapus */}
+                <button 
+                  onClick={() => handleDeleteQuotation(q.id)} 
+                  className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                  title="Hapus Penawaran"
+                >
+                  <Trash2 size={18} />
+                </button>
+
+                <button onClick={() => generateProposalPDF(q.id)} className="px-3 py-2 border rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-2 text-sm font-medium" title="Cetak Surat">
                   <Printer size={16} /> Surat
                 </button>
-                <button onClick={() => convertToOrder(q.id)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm font-medium shadow-sm" title="Jadikan Pesanan">
+                <button onClick={() => convertToOrder(q.id)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm font-bold shadow-sm" title="Jadikan Pesanan">
                   Deal <ArrowRightCircle size={16} />
                 </button>
               </div>
@@ -281,69 +329,100 @@ export default function QuotationPage() {
 
       {/* FORM MODAL */}
       {isFormOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 md:p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl w-full max-w-2xl h-[90vh] flex flex-col shadow-2xl">
             <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
-              <h3 className="font-bold">Buat Penawaran Baru</h3>
-              <button onClick={() => setIsFormOpen(false)} className="text-gray-400">Tutup</button>
+              <h3 className="font-bold text-gray-900">Buat Penawaran Baru</h3>
+              <button onClick={() => setIsFormOpen(false)} className="text-gray-400 hover:text-gray-600">Tutup</button>
             </div>
             
             <div className="flex-1 overflow-y-auto p-5 space-y-6">
-              {/* Customer */}
+              
+              {/* Bagian 1: Detail Surat (Nomor & Tanggal) */}
+              <div className="bg-purple-50 p-4 rounded-lg border border-purple-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-purple-800 uppercase mb-1 flex items-center gap-1">
+                    <Hash size={14}/> Nomor Surat
+                  </label>
+                  <input 
+                    type="text" 
+                    className="w-full border rounded p-2 text-sm text-gray-900 font-medium focus:ring-2 focus:ring-purple-500 outline-none" 
+                    value={customOrderNo} 
+                    onChange={(e) => setCustomOrderNo(e.target.value)} 
+                    placeholder="Contoh: 001/XANDER/I/2026"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-purple-800 uppercase mb-1 flex items-center gap-1">
+                    <Calendar size={14}/> Tanggal Surat
+                  </label>
+                  <input 
+                    type="date" 
+                    className="w-full border rounded p-2 text-sm text-gray-900 focus:ring-2 focus:ring-purple-500 outline-none" 
+                    value={customDate} 
+                    onChange={(e) => setCustomDate(e.target.value)} 
+                  />
+                </div>
+              </div>
+
+              {/* Bagian 2: Customer */}
               <div>
-                <label className="block text-sm font-medium mb-1">Kepada Pelanggan</label>
-                <select className="w-full border rounded-lg p-2 text-black" value={selectedCustomerId} onChange={(e) => setSelectedCustomerId(e.target.value)}>
-                  <option value="">-- Pilih --</option>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Kepada Pelanggan <span className="text-red-500">*</span></label>
+                <select className="w-full border rounded-lg p-2.5 text-gray-900 bg-white" value={selectedCustomerId} onChange={(e) => setSelectedCustomerId(e.target.value)}>
+                  <option value="">-- Pilih Pelanggan --</option>
                   {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
 
-              {/* Kontrak Detail */}
-              <div className="grid grid-cols-1 gap-4 bg-gray-50 p-4 rounded-lg border border-gray-100">
-                <h4 className="font-bold text-sm text-gray-700 flex items-center gap-2"><FileText size={16}/> Detail Surat</h4>
+              {/* Bagian 3: Kontrak Detail */}
+              <div className="grid grid-cols-1 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Perihal / Judul Surat</label>
-                  <input type="text" className="w-full border rounded p-2 text-sm text-black" value={subject} onChange={(e) => setSubject(e.target.value)} />
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Perihal / Judul Surat</label>
+                  <input type="text" className="w-full border rounded p-2 text-sm text-gray-900" value={subject} onChange={(e) => setSubject(e.target.value)} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Syarat & Ketentuan (Klausul)</label>
-                  <textarea rows={3} className="w-full border rounded p-2 text-sm text-black" value={notes} onChange={(e) => setNotes(e.target.value)} />
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Syarat & Ketentuan (Klausul)</label>
+                  <textarea rows={3} className="w-full border rounded p-2 text-sm text-gray-900" value={notes} onChange={(e) => setNotes(e.target.value)} />
                 </div>
               </div>
 
-              {/* Produk */}
+              {/* Bagian 4: Produk */}
               <div>
-                <label className="block text-sm font-medium mb-2">Pilih Produk</label>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Item Penawaran</label>
                 <div className="flex gap-2 mb-2">
-                  <select className="flex-1 border rounded p-2 text-black" value={selectedProduct} onChange={(e) => setSelectedProduct(e.target.value)}>
-                     <option value="">-- Produk --</option>
-                     {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  <select className="flex-1 border rounded p-2 text-gray-900 bg-white" value={selectedProduct} onChange={(e) => setSelectedProduct(e.target.value)}>
+                     <option value="">-- Pilih Produk --</option>
+                     {products.map(p => <option key={p.id} value={p.id}>{p.name} - Rp {p.price.toLocaleString()}</option>)}
                   </select>
-                  <input type="number" className="w-16 border rounded p-2 text-center text-black" value={inputQty} onChange={(e) => setInputQty(parseInt(e.target.value))} />
-                  <button onClick={addToCart} className="bg-purple-600 text-white px-3 rounded"><Plus size={18}/></button>
+                  <input type="number" min="1" className="w-20 border rounded p-2 text-center text-gray-900" value={inputQty} onChange={(e) => setInputQty(parseInt(e.target.value))} />
+                  <button onClick={addToCart} className="bg-purple-600 text-white px-3 rounded hover:bg-purple-700"><Plus size={18}/></button>
                 </div>
                 
                 {/* List Cart */}
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border rounded-lg overflow-hidden bg-gray-50">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-100"><tr><th className="p-2 text-left">Item</th><th className="p-2 text-right">Total</th><th className="p-2"></th></tr></thead>
+                    <thead className="bg-gray-100 text-gray-700"><tr><th className="p-2 text-left">Item</th><th className="p-2 text-right">Total</th><th className="p-2"></th></tr></thead>
                     <tbody>
-                      {cart.map((item, i) => (
-                        <tr key={i} className="border-t">
-                          <td className="p-2">{item.product_name} <span className="text-xs text-gray-400">x{item.qty}</span></td>
-                          <td className="p-2 text-right">{(item.price * item.qty).toLocaleString()}</td>
-                          <td className="p-2 text-center"><button onClick={() => removeFromCart(i)} className="text-red-500"><Trash2 size={14}/></button></td>
-                        </tr>
-                      ))}
+                      {cart.length === 0 ? (
+                        <tr><td colSpan={3} className="p-4 text-center text-gray-400 italic">Belum ada item dipilih</td></tr>
+                      ) : (
+                        cart.map((item, i) => (
+                          <tr key={i} className="border-t border-gray-200">
+                            <td className="p-2 text-gray-900">{item.product_name} <span className="text-xs text-gray-500">x{item.qty}</span></td>
+                            <td className="p-2 text-right text-gray-900 font-medium">{(item.price * item.qty).toLocaleString()}</td>
+                            <td className="p-2 text-center"><button onClick={() => removeFromCart(i)} className="text-red-400 hover:text-red-600"><Trash2 size={14}/></button></td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
               </div>
             </div>
 
-            <div className="p-4 border-t">
-              <button onClick={handleSaveQuotation} className="w-full bg-purple-600 text-white py-3 rounded-xl font-bold hover:bg-purple-700 transition">
-                SIMPAN PENAWARAN
+            <div className="p-4 border-t bg-gray-50 rounded-b-xl">
+              <button onClick={handleSaveQuotation} className="w-full bg-purple-600 text-white py-3 rounded-xl font-bold hover:bg-purple-700 transition shadow-lg shadow-purple-200">
+                SIMPAN & GENERATE SURAT
               </button>
             </div>
           </div>
