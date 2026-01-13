@@ -16,10 +16,11 @@ import {
   Target, 
   MapPin, 
   LogOut, 
-  Menu 
+  Menu,
+  BarChart3 // Icon Baru untuk Laporan
 } from 'lucide-react'
 
-// Definisi Menu Sesuai Konsep 9 Fitur Kita
+// Definisi Menu Lengkap
 const menuItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Stock Barang', href: '/dashboard/stock', icon: Package },
@@ -27,6 +28,7 @@ const menuItems = [
   { name: 'Pesanan (SO)', href: '/dashboard/orders', icon: ShoppingCart },
   { name: 'Pengiriman', href: '/dashboard/delivery', icon: Truck },
   { name: 'Faktur', href: '/dashboard/invoices', icon: Receipt },
+  { name: 'Laporan', href: '/dashboard/reports', icon: BarChart3 }, // <-- MENU BARU
   { name: 'Pelanggan', href: '/dashboard/customers', icon: Users },
   { name: 'Target Sales', href: '/dashboard/targets', icon: Target },
   { name: 'Check Point', href: '/dashboard/visits', icon: MapPin },
@@ -119,14 +121,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 key={item.href}
                 href={item.href}
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="flex items-center gap-4 py-4 border-b border-gray-100 text-gray-700"
+                className="flex items-center gap-4 py-4 border-b border-gray-100 text-gray-700 font-medium"
               >
                 <Icon size={20} />
                 {item.name}
               </Link>
              )
           })}
-          <button onClick={handleLogout} className="mt-8 flex items-center gap-4 py-4 text-red-600">
+          <button onClick={handleLogout} className="mt-8 flex items-center gap-4 py-4 text-red-600 font-bold border-t border-gray-100">
             <LogOut size={20} /> Logout
           </button>
         </div>
