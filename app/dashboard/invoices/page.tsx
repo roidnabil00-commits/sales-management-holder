@@ -10,25 +10,22 @@ import {
   X, 
   CheckCircle, 
   Clock, 
-  Percent,
-  RefreshCw
+  Search as SearchIcon, 
+  CheckSquare, 
+  Square,
+  User,
+  FileSignature,
+  RefreshCw,
+  Truck,
+  CreditCard,
+  Percent
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
 // --- TIPE DATA ---
-type Product = {
-  name: string
-  unit: string
-  barcode: string | null
-}
-
-type OrderItem = {
-  qty: number
-  price: number
-  product: Product
-}
-
+type Product = { id: number; name: string; price: number; unit: string; barcode: string | null }
+type Customer = { id: number; name: string; address: string; phone: string }
 type Order = {
   id: number
   order_no: string
@@ -37,43 +34,42 @@ type Order = {
   total_amount: number
   tax_amount: number
   discount_amount: number
-  payment_status: string // 'paid' or 'unpaid'
+  status: string // Status Logistik (pending, shipped, completed)
+  payment_status: string // Status Bayar (paid, unpaid)
   maker_name: string
   approved_name: string
   receiver_name: string
-  items?: OrderItem[]
+  items?: any[]
 }
 
-// --- HELPER: TERBILANG (Rupiah) ---
+// Tipe Checklist Produk
+type ProductSelection = Product & {
+  isSelected: boolean;
+  qty: number;
+  customPrice: number;
+}
+
+// --- HELPER TERBILANG ---
 const terbilang = (nilai: number): string => {
   const angka = Math.abs(nilai)
   const baca = ['', 'Satu', 'Dua', 'Tiga', 'Empat', 'Lima', 'Enam', 'Tujuh', 'Delapan', 'Sembilan', 'Sepuluh', 'Sebelas']
   let hasil = ''
-
-  if (angka < 12) {
-    hasil = ' ' + baca[Math.floor(angka)]
-  } else if (angka < 20) {
-    hasil = terbilang(angka - 10) + ' Belas'
-  } else if (angka < 100) {
-    hasil = terbilang(Math.floor(angka / 10)) + ' Puluh' + terbilang(angka % 10)
-  } else if (angka < 200) {
-    hasil = ' Seratus' + terbilang(angka - 100)
-  } else if (angka < 1000) {
-    hasil = terbilang(Math.floor(angka / 100)) + ' Ratus' + terbilang(angka % 100)
-  } else if (angka < 2000) {
-    hasil = ' Seribu' + terbilang(angka - 1000)
-  } else if (angka < 1000000) {
-    hasil = terbilang(Math.floor(angka / 1000)) + ' Ribu' + terbilang(angka % 1000)
-  } else if (angka < 1000000000) {
-    hasil = terbilang(Math.floor(angka / 1000000)) + ' Juta' + terbilang(angka % 1000000)
-  }
-
+  if (angka < 12) { hasil = ' ' + baca[Math.floor(angka)] } 
+  else if (angka < 20) { hasil = terbilang(angka - 10) + ' Belas' } 
+  else if (angka < 100) { hasil = terbilang(Math.floor(angka / 10)) + ' Puluh' + terbilang(angka % 10) } 
+  else if (angka < 200) { hasil = ' Seratus' + terbilang(angka - 100) } 
+  else if (angka < 1000) { hasil = terbilang(Math.floor(angka / 100)) + ' Ratus' + terbilang(angka % 100) } 
+  else if (angka < 2000) { hasil = ' Seribu' + terbilang(angka - 1000) } 
+  else if (angka < 1000000) { hasil = terbilang(Math.floor(angka / 1000)) + ' Ribu' + terbilang(angka % 1000) } 
+  else if (angka < 1000000000) { hasil = terbilang(Math.floor(angka / 1000000)) + ' Juta' + terbilang(angka % 1000000) }
   return hasil
 }
 
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Order[]>([])
+  const [products, setProducts] = useState<ProductSelection[]>([]) 
   const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
   
   // State Form
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -82,65 +78,126 @@ export default function InvoicesPage() {
   // Input Form States
   const [invNo, setInvNo] = useState('')
   const [invDate, setInvDate] = useState('')
-  const [discountRate, setDiscountRate] = useState(0) // %
-  const [paymentStatus, setPaymentStatus] = useState('unpaid') // Status Bayar
+  const [paymentStatus, setPaymentStatus] = useState('unpaid')
+  
+  // Helper States
+  const [searchProductTerm, setSearchProductTerm] = useState('')
+  const [discountRate, setDiscountRate] = useState(0) 
+  const [taxRate, setTaxRate] = useState(0) 
+  
+  // Signatures
   const [makerName, setMakerName] = useState('')
   const [approvedName, setApprovedName] = useState('Manager Keuangan')
   const [receiverName, setReceiverName] = useState('')
 
   useEffect(() => {
-    fetchInvoices()
+    fetchInitialData()
   }, [])
 
-  // --- AMBIL DATA (Status Shipped) ---
-  const fetchInvoices = async () => {
+  const fetchInitialData = async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('orders')
-      .select(`
-        *,
-        customer:customers(name, address, phone),
-        items:order_items(qty, price, product:products(name, unit, barcode))
-      `)
-      .eq('status', 'shipped') 
-      .order('created_at', { ascending: false })
+    const { data: prodData } = await supabase.from('products').select('*').eq('is_active', true)
     
-    if (error) console.error(error)
-    else setInvoices((data as any) || [])
+    // Siapkan checklist produk
+    if (prodData) {
+      const prods = prodData.map((p: any) => ({ 
+        ...p, isSelected: false, qty: 1, customPrice: p.price 
+      }))
+      setProducts(prods)
+    }
+
+    await fetchInvoices()
     setLoading(false)
   }
 
-  // --- HAPUS INVOICE ---
-  const handleDelete = async (id: number) => {
-    if (!confirm('PERHATIAN: Hapus Invoice ini? Data penjualan akan hilang permanen dari database.')) return
-
-    try {
-      await supabase.from('order_items').delete().eq('order_id', id)
-      const { error } = await supabase.from('orders').delete().eq('id', id)
-      if (error) throw error
-      alert('Invoice berhasil dihapus.')
-      fetchInvoices()
-    } catch (err: any) {
-      alert('Gagal hapus: ' + err.message)
+  // --- FETCH & SEARCH ---
+  const fetchInvoices = async (query = '') => {
+    setLoading(true)
+    // Ambil data invoice (yang statusnya shipped atau completed)
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`*, customer:customers(name, address, phone), items:order_items(product_id, qty, price, product:products(name, unit, barcode))`)
+      .in('status', ['shipped', 'completed']) 
+      .order('created_at', { ascending: false })
+      .limit(50)
+    
+    if (error) console.error(error)
+    else {
+      // Client-side filter untuk search
+      const filtered = (data as any[]).filter(inv => 
+        inv.order_no.toLowerCase().includes(query.toLowerCase()) || 
+        inv.customer?.name.toLowerCase().includes(query.toLowerCase())
+      )
+      setInvoices(filtered)
     }
+    setLoading(false)
   }
+
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value)
+    fetchInvoices(e.target.value)
+  }
+
+  // --- CHECKLIST LOGIC ---
+  const toggleProductSelection = (id: number) => {
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, isSelected: !p.isSelected } : p))
+  }
+
+  const updateProductQty = (id: number, val: number) => {
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, qty: val > 0 ? val : 1 } : p))
+  }
+
+  const updateProductPrice = (id: number, val: number) => {
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, customPrice: val >= 0 ? val : 0 } : p))
+  }
+
+  // Filter & Kalkulasi
+  const filteredProducts = products.filter(p => 
+    p.name.toLowerCase().includes(searchProductTerm.toLowerCase()) || 
+    (p.barcode && p.barcode.includes(searchProductTerm))
+  )
+  
+  const selectedItems = products.filter(p => p.isSelected)
+  const subTotal = selectedItems.reduce((acc, item) => acc + (item.customPrice * item.qty), 0)
+  const discountVal = (subTotal * discountRate) / 100
+  const taxVal = ((subTotal - discountVal) * taxRate) / 100
+  const grandTotal = subTotal - discountVal + taxVal
 
   // --- BUKA FORM EDIT ---
   const handleEditClick = (order: Order) => {
     setSelectedOrder(order)
-    
-    // Hitung % Diskon dari Rupiah yang tersimpan
-    const subTotal = order.items?.reduce((acc, item) => acc + (item.price * item.qty), 0) || 0
-    const currentRate = subTotal > 0 ? ((order.discount_amount || 0) / subTotal) * 100 : 0
-
     setInvNo(order.order_no)
     setInvDate(new Date(order.created_at).toISOString().split('T')[0])
-    setDiscountRate(Math.round(currentRate))
-    setPaymentStatus(order.payment_status || 'unpaid') // Load status bayar
-    setMakerName(order.maker_name || 'Admin Sales')
+    setPaymentStatus(order.payment_status || 'unpaid')
+    setMakerName(order.maker_name || 'Admin Finance')
     setApprovedName(order.approved_name || 'Manager Keuangan')
     setReceiverName(order.receiver_name || order.customer.name)
-    
+
+    // Reverse Calc untuk Persentase Diskon & Pajak
+    const currentSubTotal = order.items?.reduce((acc, i) => acc + (i.price * i.qty), 0) || 0
+    let dRate = 0
+    if (currentSubTotal > 0 && order.discount_amount) {
+      dRate = Math.round((order.discount_amount / currentSubTotal) * 100)
+    }
+    setDiscountRate(dRate)
+
+    let tRate = 0
+    const afterDiscount = currentSubTotal - (order.discount_amount || 0)
+    if (afterDiscount > 0 && order.tax_amount) {
+      tRate = Math.round((order.tax_amount / afterDiscount) * 100)
+    }
+    setTaxRate(tRate)
+
+    // Map Items ke Checklist
+    const orderItemMap = new Map(order.items?.map((i: any) => [i.product_id, i]))
+    const newProductsState = products.map(p => {
+      const existing: any = orderItemMap.get(p.id)
+      return existing 
+        ? { ...p, isSelected: true, qty: existing.qty, customPrice: existing.price }
+        : { ...p, isSelected: false, qty: 1, customPrice: p.price }
+    })
+    setProducts(newProductsState)
+
     setIsFormOpen(true)
   }
 
@@ -148,22 +205,17 @@ export default function InvoicesPage() {
   const handleSaveAndPrint = async () => {
     if (!selectedOrder) return
 
-    // Hitung Ulang Angka
-    const subTotal = selectedOrder.items?.reduce((acc, item) => acc + (item.price * item.qty), 0) || 0
-    const discountValue = (subTotal * discountRate) / 100
-    const tax = selectedOrder.tax_amount || 0
-    const grandTotal = subTotal - discountValue + tax
-
     try {
-      // Update Database
+      // 1. Update Database
       const { error } = await supabase
         .from('orders')
         .update({
           order_no: invNo,
           created_at: new Date(invDate).toISOString(),
-          discount_amount: discountValue,
+          discount_amount: discountVal,
+          tax_amount: taxVal,
           total_amount: grandTotal,
-          payment_status: paymentStatus, // Simpan Status Bayar Baru
+          payment_status: paymentStatus, // Simpan status sesuai pilihan user
           maker_name: makerName,
           approved_name: approvedName,
           receiver_name: receiverName
@@ -172,220 +224,217 @@ export default function InvoicesPage() {
 
       if (error) throw error
 
-      // Object baru untuk PDF
+      // 2. Update Items (Hapus lama, insert baru dari checklist)
+      await supabase.from('order_items').delete().eq('order_id', selectedOrder.id)
+      
+      const newItems = selectedItems.map(item => ({
+        order_id: selectedOrder.id,
+        product_id: item.id,
+        qty: item.qty,
+        price: item.customPrice
+      }))
+      await supabase.from('order_items').insert(newItems)
+
+      // 3. Generate PDF Langsung
       const updatedOrder = {
         ...selectedOrder,
         order_no: invNo,
         created_at: new Date(invDate).toISOString(),
-        discount_amount: discountValue,
+        discount_amount: discountVal,
+        tax_amount: taxVal,
         total_amount: grandTotal,
-        payment_status: paymentStatus,
+        payment_status: paymentStatus, // Gunakan status terbaru
         maker_name: makerName,
         approved_name: approvedName,
-        receiver_name: receiverName
+        receiver_name: receiverName,
+        items: selectedItems.map(p => ({
+          product: { name: p.name, unit: p.unit, barcode: p.barcode },
+          qty: p.qty,
+          price: p.customPrice
+        }))
       }
       
-      // Generate PDF
       await generateInvoicePDF(updatedOrder)
 
       setIsFormOpen(false)
-      fetchInvoices() // Refresh tabel agar status berubah
+      fetchInvoices() // Refresh list
 
     } catch (err: any) {
       alert('Gagal proses: ' + err.message)
     }
   }
 
-  // --- GENERATE PDF (LAYOUT RAPIH) ---
-  const generateInvoicePDF = async (order: Order) => {
-    const doc = new jsPDF()
+  // --- GENERATE PDF (FORMAT A4) ---
+  const generateInvoicePDF = async (order: any) => {
+    const doc = new jsPDF({ format: 'a4', unit: 'mm' })
     
-    // KOP SURAT
-    doc.setFontSize(18); doc.setFont('helvetica', 'bold');
-    doc.text('XANDER SYSTEMS & BAKERY', 14, 20)
+    // HEADER
+    doc.setFontSize(22); doc.setFont('helvetica', 'bold');
+    doc.text('XANDER SYSTEMS', 105, 20, { align: 'center' })
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-    doc.text('Jl. Teknologi Masa Depan No. 1, Jakarta Selatan', 14, 26)
-    doc.text('Telp: 021-555-888 | Email: invoice@xander.com', 14, 31)
-    doc.setLineWidth(0.5); doc.line(14, 35, 196, 35);
+    doc.text('Distribusi Roti & Kue Pilihan', 105, 26, { align: 'center' })
+    doc.text('Jl. Raya Puncak No. 1, Bogor - Telp: 021-555-888', 105, 31, { align: 'center' })
+    doc.setLineWidth(0.5); doc.line(15, 36, 195, 36);
 
-    // JUDUL & INFO
+    // JUDUL
     doc.setFontSize(16); doc.setFont('helvetica', 'bold');
-    doc.text('INVOICE / FAKTUR', 196, 20, { align: 'right' })
+    doc.text('INVOICE / FAKTUR', 105, 48, { align: 'center' })
     
-    doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-    doc.text(`No. Invoice : ${order.order_no}`, 140, 45)
-    doc.text(`Tanggal     : ${new Date(order.created_at).toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}`, 140, 50)
-    
-    // STATUS LUNAS (Stamp di PDF jika Lunas)
+    // STATUS STAMP LUNAS/TAGIHAN
     if(order.payment_status === 'paid') {
-      doc.setTextColor(0, 150, 0); // Hijau
-      doc.setFont('helvetica', 'bold');
-      doc.text('[ LUNAS ]', 196, 50, { align: 'right' });
-      doc.setTextColor(0, 0, 0); // Balikin Hitam
-      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 150, 0); doc.setFontSize(14);
+      doc.text('[ LUNAS ]', 195, 48, { align: 'right' });
+      doc.setTextColor(0, 0, 0);
+    } else {
+      doc.setTextColor(200, 0, 0); doc.setFontSize(14);
+      doc.text('[ TAGIHAN ]', 195, 48, { align: 'right' });
+      doc.setTextColor(0, 0, 0);
     }
 
-    // CUSTOMER
-    doc.text('Ditujukan Kepada:', 14, 45)
-    doc.setFont('helvetica', 'bold')
-    doc.text(order.customer.name, 14, 50)
+    // INFO
+    const leftX = 15, rightX = 130, infoY = 60
+    doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+    doc.text('Ditagihkan Kepada:', leftX, infoY)
     doc.setFont('helvetica', 'normal')
-    doc.text(order.customer.address || 'Alamat tidak tersedia', 14, 55)
-    doc.text(order.customer.phone || '-', 14, 60)
+    doc.text(order.customer.name, leftX, infoY + 5)
+    doc.text(order.customer.address || '-', leftX, infoY + 10)
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text('No. Invoice:', rightX, infoY); doc.setFont('helvetica', 'normal'); doc.text(order.order_no, rightX + 25, infoY)
+    doc.setFont('helvetica', 'bold');
+    doc.text('Tanggal:', rightX, infoY + 6); doc.setFont('helvetica', 'normal'); doc.text(new Date(order.created_at).toLocaleDateString('id-ID'), rightX + 25, infoY + 6)
 
-    // TABEL BARANG
-    const tableRows = order.items?.map((item) => [
-      item.product.barcode || '-',
-      item.product.name,
-      `${item.qty} ${item.product.unit}`,
-      `Rp ${item.price.toLocaleString()}`,
-      `Rp ${(item.qty * item.price).toLocaleString()}`
-    ]) || []
+    // TABEL
+    const tableRows = order.items.map((item: any) => [
+      item.product.barcode || '-', item.product.name, `${item.qty} ${item.product.unit}`,
+      `Rp ${item.price.toLocaleString()}`, `Rp ${(item.qty * item.price).toLocaleString()}`
+    ])
 
     autoTable(doc, {
-      startY: 65,
+      startY: 85,
       head: [['Barcode', 'Nama Barang', 'Qty', 'Harga Satuan', 'Total']],
       body: tableRows,
       theme: 'grid',
-      headStyles: { fillColor: [41, 128, 185], textColor: [255, 255, 255], fontStyle: 'bold' },
-      styles: { fontSize: 9, cellPadding: 3 },
-      columnStyles: { 0: { cellWidth: 30 }, 4: { halign: 'right' } }
+      headStyles: { fillColor: [40, 40, 40], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+      columnStyles: { 0: { cellWidth: 30 }, 2: { halign: 'center' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      margin: { left: 15, right: 15 }
     })
 
     const finalY = (doc as any).lastAutoTable.finalY + 5
 
-    // KALKULASI (LAYOUT BARU BIAR GAK TERTINDIH)
-    const subTotal = order.items?.reduce((acc, item) => acc + (item.price * item.qty), 0) || 0
-    const discount = order.discount_amount || 0
-    const tax = order.tax_amount || 0
-    const grandTotal = subTotal - discount + tax
-
+    // SUMMARY
+    const labelX = 135, valX = 195, step = 6
     doc.setFont('helvetica', 'normal')
-    
-    // Label & Value (Right Aligned Value)
-    const labelX = 130;
-    const valueX = 196;
-    const step = 6; // Jarak antar baris
+    const sub = order.items.reduce((a:number, b:any) => a + (b.price * b.qty), 0)
+    const disc = order.discount_amount || 0
+    const tax = order.tax_amount || 0
+    const grand = order.total_amount
 
-    doc.text('Sub Total:', labelX, finalY + step)
-    doc.text(`Rp ${subTotal.toLocaleString()}`, valueX, finalY + step, { align: 'right' })
-    
-    doc.text('Diskon (-):', labelX, finalY + (step*2))
-    doc.text(`Rp ${discount.toLocaleString()}`, valueX, finalY + (step*2), { align: 'right' })
-    
-    doc.text('PPN (+):', labelX, finalY + (step*3))
-    doc.text(`Rp ${tax.toLocaleString()}`, valueX, finalY + (step*3), { align: 'right' })
-    
-    // Garis Total
-    doc.setLineWidth(0.2);
-    doc.line(labelX, finalY + (step*3) + 2, valueX, finalY + (step*3) + 2);
-
-    // Grand Total (Lebih Besar)
+    doc.text('Sub Total:', labelX, finalY + step); doc.text(`Rp ${sub.toLocaleString()}`, valX, finalY + step, { align: 'right' })
+    doc.text('Diskon (-):', labelX, finalY + (step*2)); doc.text(`Rp ${disc.toLocaleString()}`, valX, finalY + (step*2), { align: 'right' })
+    doc.text('PPN (+):', labelX, finalY + (step*3)); doc.text(`Rp ${tax.toLocaleString()}`, valX, finalY + (step*3), { align: 'right' })
     doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
-    doc.text('TOTAL TAGIHAN:', labelX, finalY + (step*5))
-    doc.text(`Rp ${grandTotal.toLocaleString()}`, valueX, finalY + (step*5), { align: 'right' })
+    doc.text('TOTAL:', labelX, finalY + (step*5)); doc.text(`Rp ${grand.toLocaleString()}`, valX, finalY + (step*5), { align: 'right' })
 
-    // Terbilang (Di Kiri Bawah)
+    // TERBILANG
     doc.setFontSize(10); doc.setFont('helvetica', 'italic');
-    doc.text(`Terbilang: ${terbilang(grandTotal)} Rupiah`, 14, finalY + (step*5))
+    doc.text(`Terbilang: ${terbilang(grand)} Rupiah`, 15, finalY + (step*5))
 
-    // Footer Info
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    const tahun = new Date().getFullYear();
-    const keterangan = `Keterangan: ${order.customer.name} / ${order.order_no} / ${tahun}`;
-    doc.text(keterangan, 14, finalY + (step*8))
+    // SIGNATURES
+    const signY = finalY + 50
+    doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+    doc.text('Disiapkan Oleh,', 30, signY, {align:'center'}); doc.text(`( ${order.maker_name || 'Admin'} )`, 30, signY + 25, {align:'center'}); doc.line(10, signY + 26, 50, signY + 26)
+    doc.text('Disetujui Oleh,', 105, signY, {align:'center'}); doc.text(`( ${order.approved_name || 'Manager'} )`, 105, signY + 25, {align:'center'}); doc.line(85, signY + 26, 125, signY + 26)
+    doc.text('Diterima Oleh,', 180, signY, {align:'center'}); doc.text(`( ${order.receiver_name || 'Pelanggan'} )`, 180, signY + 25, {align:'center'}); doc.line(160, signY + 26, 200, signY + 26)
 
-    // TANDA TANGAN (Posisi Aman)
-    const signY = finalY + (step*11)
-    
-    // Kolom 1
-    doc.text('Disiapkan Oleh,', 20, signY)
-    doc.text(`( ${order.maker_name || 'Admin'} )`, 20, signY + 25)
-    doc.line(20, signY + 26, 60, signY + 26) 
-
-    // Kolom 2
-    doc.text('Disetujui Oleh,', 85, signY)
-    doc.text(`( ${order.approved_name || 'Manager'} )`, 85, signY + 25)
-    doc.line(85, signY + 26, 125, signY + 26)
-
-    // Kolom 3
-    doc.text('Diterima Oleh,', 150, signY)
-    doc.text(`( ${order.receiver_name || 'Pelanggan'} )`, 150, signY + 25)
-    doc.line(150, signY + 26, 190, signY + 26)
-    
-    // Print Popup
     doc.autoPrint();
     const blob = doc.output('blob');
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
+    window.open(URL.createObjectURL(blob), '_blank');
   }
 
-  // Helper untuk Kalkulasi UI Modal
-  const modalSubTotal = selectedOrder?.items?.reduce((acc, item) => acc + (item.price * item.qty), 0) || 0
-  const modalDiscountVal = (modalSubTotal * discountRate) / 100
-  const modalTax = selectedOrder?.tax_amount || 0
-  const modalGrandTotal = modalSubTotal - modalDiscountVal + modalTax
+  const handleDelete = async (id: number) => {
+    if (!confirm('PERHATIAN: Hapus Invoice ini? Data penjualan akan hilang permanen.')) return
+    await supabase.from('order_items').delete().eq('order_id', id)
+    await supabase.from('orders').delete().eq('id', id)
+    fetchInvoices()
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Faktur Penjualan</h2>
-          <p className="text-sm text-gray-500">Kelola tagihan, diskon, dan cetak invoice resmi</p>
+          <p className="text-sm text-gray-700 font-bold">Kelola tagihan, status pembayaran, dan cetak invoice</p>
         </div>
-        <button onClick={fetchInvoices} className="text-blue-600 hover:text-blue-800"><RefreshCw size={20}/></button>
+        <button onClick={() => fetchInvoices()} className="text-blue-700 hover:text-blue-900"><RefreshCw size={24}/></button>
       </div>
 
+      {/* SEARCH BAR */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex items-center gap-2">
+        <SearchIcon className="text-gray-900" size={20} />
+        <input 
+          type="text" 
+          placeholder="Cari No. Invoice / Nama Pelanggan..." 
+          className="flex-1 outline-none text-sm text-gray-900 font-bold placeholder:font-normal placeholder:text-gray-500"
+          value={searchTerm} onChange={handleSearch}
+        />
+      </div>
+
+      {/* TABEL LIST */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <table className="w-full text-sm text-left">
-          <thead className="bg-gray-100 text-gray-700 font-bold border-b border-gray-200 uppercase">
+          <thead className="bg-gray-100 text-gray-900 font-bold border-b border-gray-300 uppercase">
             <tr>
-              <th className="px-6 py-4">No. Invoice</th>
+              <th className="px-6 py-4">Invoice</th>
               <th className="px-6 py-4">Pelanggan</th>
-              <th className="px-6 py-4">Total</th>
-              <th className="px-6 py-4">Status Bayar</th>
+              <th className="px-6 py-4">Status Logistik</th>
+              <th className="px-6 py-4">Status Keuangan</th>
+              <th className="px-6 py-4 text-right">Total</th>
               <th className="px-6 py-4 text-center">Aksi</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-200">
             {loading ? (
-               <tr><td colSpan={5} className="p-6 text-center text-gray-500">Memuat data...</td></tr>
+               <tr><td colSpan={6} className="p-6 text-center text-gray-900 font-medium">Memuat data...</td></tr>
             ) : invoices.length === 0 ? (
-               <tr><td colSpan={5} className="p-6 text-center text-gray-500">Belum ada pesanan terkirim.</td></tr>
+               <tr><td colSpan={6} className="p-6 text-center text-gray-900 font-medium">Tidak ada data invoice.</td></tr>
             ) : (
               invoices.map((inv) => (
                 <tr key={inv.id} className="hover:bg-blue-50 transition">
-                  <td className="px-6 py-4 font-bold text-gray-900">{inv.order_no}</td>
                   <td className="px-6 py-4">
-                    <div className="font-bold text-gray-800">{inv.customer.name}</div>
-                    <div className="text-xs text-gray-500">{new Date(inv.created_at).toLocaleDateString('id-ID')}</div>
+                    <div className="font-bold text-gray-900 text-base">{inv.order_no}</div>
+                    <div className="text-xs text-gray-700 font-medium">{new Date(inv.created_at).toLocaleDateString('id-ID')}</div>
                   </td>
-                  <td className="px-6 py-4 font-bold text-gray-900">Rp {inv.total_amount.toLocaleString()}</td>
+                  <td className="px-6 py-4 font-bold text-gray-900 text-base">{inv.customer?.name}</td>
+                  
+                  {/* Status Logistik */}
                   <td className="px-6 py-4">
-                    {inv.payment_status === 'paid' ? (
-                      <span className="flex items-center gap-1 text-green-700 bg-green-100 px-2 py-1 rounded-full text-xs font-bold w-fit border border-green-200">
-                        <CheckCircle size={12} /> LUNAS
-                      </span>
+                    {inv.status === 'completed' ? (
+                      <span className="flex items-center gap-1 text-green-800 bg-green-200 px-2 py-1 rounded text-xs font-bold w-fit"><CheckCircle size={12}/> Selesai</span>
+                    ) : inv.status === 'shipped' ? (
+                      <span className="flex items-center gap-1 text-blue-800 bg-blue-200 px-2 py-1 rounded text-xs font-bold w-fit"><Truck size={12}/> Dikirim</span>
                     ) : (
-                      <span className="flex items-center gap-1 text-red-700 bg-red-100 px-2 py-1 rounded-full text-xs font-bold w-fit border border-red-200">
-                        <Clock size={12} /> BELUM BAYAR
-                      </span>
+                      <span className="flex items-center gap-1 text-yellow-800 bg-yellow-200 px-2 py-1 rounded text-xs font-bold w-fit"><Clock size={12}/> Menunggu</span>
                     )}
                   </td>
+
+                  {/* Status Keuangan */}
+                  <td className="px-6 py-4">
+                    {inv.payment_status === 'paid' ? (
+                      <span className="flex items-center gap-1 text-emerald-800 bg-emerald-200 px-2 py-1 rounded text-xs font-bold w-fit"><CreditCard size={12}/> LUNAS</span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-red-800 bg-red-200 px-2 py-1 rounded text-xs font-bold w-fit"><Clock size={12}/> BELUM LUNAS</span>
+                    )}
+                  </td>
+
+                  <td className="px-6 py-4 text-right font-black text-gray-900 text-base">Rp {inv.total_amount.toLocaleString()}</td>
+                  
                   <td className="px-6 py-4 flex justify-center gap-2">
-                    <button 
-                      onClick={() => handleEditClick(inv)}
-                      className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-2 font-medium transition"
-                      title="Proses Invoice"
-                    >
-                      <Edit size={16} /> Proses
+                    <button onClick={() => handleEditClick(inv)} className="p-2 text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition border border-blue-200" title="Proses">
+                      <Edit size={18} />
                     </button>
-                    <button 
-                      onClick={() => handleDelete(inv.id)}
-                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
-                      title="Hapus"
-                    >
-                      <Trash2 size={16} />
+                    <button onClick={() => handleDelete(inv.id)} className="p-2 text-red-700 hover:bg-red-50 rounded-lg transition border border-red-200" title="Hapus">
+                      <Trash2 size={18} />
                     </button>
                   </td>
                 </tr>
@@ -395,115 +444,129 @@ export default function InvoicesPage() {
         </table>
       </div>
 
-      {/* FORM MODAL */}
+      {/* --- FORM MODAL --- */}
       {isFormOpen && selectedOrder && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-2 md:p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-xl w-full max-w-4xl h-[95vh] flex flex-col shadow-2xl overflow-hidden border border-gray-300">
             
-            <div className="p-5 border-b flex justify-between items-center bg-gray-50">
-              <h3 className="font-bold text-gray-900 text-lg">Proses Invoice & Pembayaran</h3>
-              <button onClick={() => setIsFormOpen(false)} className="text-gray-400 hover:text-red-600">
-                <X size={24} />
-              </button>
+            <div className="p-5 border-b border-gray-200 flex justify-between items-center bg-gray-100">
+              <h3 className="font-black text-gray-900 text-xl">Proses Invoice</h3>
+              <button onClick={() => setIsFormOpen(false)} className="text-gray-500 hover:text-red-600"><X size={28} /></button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              {/* Header Info */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                   <label className="text-xs font-bold text-gray-500 uppercase mb-1">No. Invoice</label>
-                   <input type="text" className="w-full border rounded p-2 text-gray-900 font-bold bg-gray-50" 
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                   <label className="text-xs font-black text-blue-900 uppercase mb-1 block">No. Invoice</label>
+                   <input type="text" className="w-full border border-blue-300 rounded-lg p-2 font-black text-gray-900 bg-white" 
                      value={invNo} onChange={(e) => setInvNo(e.target.value)} />
                 </div>
-                <div>
-                   <label className="text-xs font-bold text-gray-500 uppercase mb-1">Tanggal</label>
-                   <input type="date" className="w-full border rounded p-2 text-gray-900 font-medium" 
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                   <label className="text-xs font-black text-blue-900 uppercase mb-1 block">Tanggal</label>
+                   <input type="date" className="w-full border border-blue-300 rounded-lg p-2 font-bold text-gray-900 bg-white" 
                      value={invDate} onChange={(e) => setInvDate(e.target.value)} />
                 </div>
               </div>
 
-              {/* STATUS PEMBAYARAN (FIX: Agar Status Berubah) */}
-              <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100">
-                <label className="block text-sm font-bold text-gray-900 mb-2">Status Pembayaran</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
+              {/* RADIO BUTTON STATUS PEMBAYARAN (RESTORED) */}
+              <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200">
+                <label className="text-sm font-black text-yellow-900 uppercase mb-3 block">Status Pembayaran</label>
+                <div className="flex gap-6">
+                  <label className="flex items-center gap-3 cursor-pointer p-3 bg-white border border-red-200 rounded-lg shadow-sm hover:bg-red-50 transition">
                     <input type="radio" name="payment" value="unpaid" 
                       checked={paymentStatus === 'unpaid'} 
                       onChange={() => setPaymentStatus('unpaid')}
-                      className="w-5 h-5 text-red-600" />
-                    <span className="text-red-700 font-bold">Belum Bayar (Tempo)</span>
+                      className="w-5 h-5 text-red-600 accent-red-600" />
+                    <span className="text-red-700 font-bold">BELUM LUNAS</span>
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex items-center gap-3 cursor-pointer p-3 bg-white border border-green-200 rounded-lg shadow-sm hover:bg-green-50 transition">
                     <input type="radio" name="payment" value="paid" 
                       checked={paymentStatus === 'paid'} 
                       onChange={() => setPaymentStatus('paid')}
-                      className="w-5 h-5 text-green-600" />
+                      className="w-5 h-5 text-green-600 accent-green-600" />
                     <span className="text-green-700 font-bold">LUNAS</span>
                   </label>
                 </div>
               </div>
 
-              {/* Kalkulasi */}
-              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Sub Total</span>
-                  <span className="font-bold">Rp {modalSubTotal.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-600 flex items-center gap-1"><Percent size={14}/> Diskon (%)</span>
-                  <div className="flex items-center gap-2">
-                    <input 
-                      type="number" min="0" max="100"
-                      className="w-16 border border-blue-300 rounded p-1 text-center font-bold text-red-600" 
-                      value={discountRate} onChange={(e) => setDiscountRate(parseFloat(e.target.value) || 0)} 
+              {/* CHECKLIST PRODUK */}
+              <div className="bg-gray-50 p-5 rounded-xl border border-gray-300 shadow-sm">
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className="font-black text-gray-900 flex items-center gap-2 text-lg"><CheckSquare size={20}/> Rincian Barang</h4>
+                  <div className="relative">
+                    <SearchIcon className="absolute left-2 top-2 text-gray-500" size={18} />
+                    <input type="text" placeholder="Cari barang..." 
+                      className="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 font-bold w-56"
+                      value={searchProductTerm} onChange={e => setSearchProductTerm(e.target.value)}
                     />
-                    <span className="text-gray-500 text-xs font-medium bg-white px-2 py-1 rounded border">
-                      - Rp {modalDiscountVal.toLocaleString()}
-                    </span>
                   </div>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">PPN</span>
-                  <span className="font-bold">Rp {modalTax.toLocaleString()}</span>
+
+                <div className="overflow-y-auto max-h-[300px] border border-gray-300 rounded-lg divide-y divide-gray-200 bg-white">
+                  {filteredProducts.map((product) => (
+                    <div key={product.id} className={`p-3 flex items-center gap-3 hover:bg-blue-50 transition ${product.isSelected ? 'bg-blue-100' : ''}`}>
+                      <div onClick={() => toggleProductSelection(product.id)} className="cursor-pointer">
+                        {product.isSelected ? <CheckSquare className="text-blue-700" size={26} /> : <Square className="text-gray-400" size={26} />}
+                      </div>
+                      <div className="flex-1 cursor-pointer" onClick={() => toggleProductSelection(product.id)}>
+                        <p className="font-black text-gray-900 text-sm">{product.name}</p>
+                        <p className="text-xs text-gray-700 font-bold font-mono">{product.barcode || '-'}</p>
+                      </div>
+                      {product.isSelected && (
+                        <div className="flex items-center gap-2">
+                          <div className="flex flex-col items-end">
+                            <label className="text-[10px] text-gray-700 font-black uppercase">Harga</label>
+                            <input type="number" className="w-28 border border-gray-400 rounded p-1 text-right font-black text-gray-900"
+                              value={product.customPrice} onChange={(e) => updateProductPrice(product.id, parseInt(e.target.value))} onClick={(e) => e.stopPropagation()} />
+                          </div>
+                          <div className="flex flex-col items-center">
+                            <label className="text-[10px] text-gray-700 font-black uppercase">Qty</label>
+                            <input type="number" min="1" className="w-16 border border-gray-400 rounded p-1 text-center font-black text-gray-900"
+                              value={product.qty} onChange={(e) => updateProductQty(product.id, parseInt(e.target.value))} onClick={(e) => e.stopPropagation()} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                <div className="border-t border-blue-200 pt-2 flex justify-between text-lg font-bold text-blue-900">
-                  <span>TOTAL TAGIHAN</span>
-                  <span>Rp {modalGrandTotal.toLocaleString()}</span>
+
+                {/* Footer Kalkulasi */}
+                <div className="mt-4 pt-4 border-t border-gray-300 grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                  <div className="flex gap-4">
+                    <div>
+                      <label className="text-xs font-black text-gray-800">Diskon (%)</label>
+                      <input type="number" min="0" className="w-full border border-gray-400 rounded p-2 text-center font-black text-gray-900 text-lg" 
+                        value={discountRate} onChange={(e) => setDiscountRate(parseFloat(e.target.value)||0)} />
+                    </div>
+                    <div>
+                      <label className="text-xs font-black text-gray-800">PPN (%)</label>
+                      <input type="number" min="0" className="w-full border border-gray-400 rounded p-2 text-center font-black text-gray-900 text-lg" 
+                        value={taxRate} onChange={(e) => setTaxRate(parseFloat(e.target.value)||0)} />
+                    </div>
+                  </div>
+                  <div className="text-right space-y-1">
+                    <p className="text-sm text-gray-800 font-bold">Subtotal: <span className="font-black">Rp {subTotal.toLocaleString()}</span></p>
+                    <p className="text-xs text-red-600 font-bold">Disc: -Rp {discountVal.toLocaleString()}</p>
+                    <p className="text-xs text-gray-800 font-bold">Tax: +Rp {taxVal.toLocaleString()}</p>
+                    <p className="text-2xl font-black text-blue-900 mt-2 border-t border-gray-300 pt-1">Total: Rp {grandTotal.toLocaleString()}</p>
+                  </div>
                 </div>
-                <p className="text-xs text-center italic text-blue-600">
-                  "{terbilang(modalGrandTotal)} Rupiah"
-                </p>
               </div>
 
               {/* Tanda Tangan */}
-              <div>
-                <label className="block text-sm font-bold text-gray-900 mb-2 border-b pb-1">Penanda Tangan</label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-500 block mb-1">Disiapkan</label>
-                    <input type="text" className="w-full border rounded p-2 text-xs" 
-                      value={makerName} onChange={(e) => setMakerName(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 block mb-1">Disetujui</label>
-                    <input type="text" className="w-full border rounded p-2 text-xs" 
-                      value={approvedName} onChange={(e) => setApprovedName(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 block mb-1">Diterima</label>
-                    <input type="text" className="w-full border rounded p-2 text-xs" 
-                      value={receiverName} onChange={(e) => setReceiverName(e.target.value)} />
-                  </div>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                 <div><label className="text-xs text-gray-800 font-bold block mb-1">Disiapkan Oleh</label><input type="text" className="w-full border border-gray-300 rounded p-2 text-sm font-bold text-gray-900" value={makerName} onChange={(e) => setMakerName(e.target.value)} /></div>
+                 <div><label className="text-xs text-gray-800 font-bold block mb-1">Disetujui Oleh</label><input type="text" className="w-full border border-gray-300 rounded p-2 text-sm font-bold text-gray-900" value={approvedName} onChange={(e) => setApprovedName(e.target.value)} /></div>
+                 <div><label className="text-xs text-gray-800 font-bold block mb-1">Diterima Oleh</label><input type="text" className="w-full border border-gray-300 rounded p-2 text-sm font-bold text-gray-900" value={receiverName} onChange={(e) => setReceiverName(e.target.value)} /></div>
               </div>
             </div>
 
-            <div className="p-5 border-t bg-gray-50">
+            <div className="p-5 border-t border-gray-300 bg-gray-50">
               <button 
                 onClick={handleSaveAndPrint}
-                className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition shadow-lg flex justify-center items-center gap-2"
+                className="w-full bg-blue-700 text-white py-4 rounded-xl font-black text-xl hover:bg-blue-800 shadow-xl flex justify-center items-center gap-3 transition transform active:scale-95"
               >
-                <Printer size={20} /> SIMPAN & CETAK
+                <Printer size={24} /> SIMPAN & CETAK
               </button>
             </div>
 
