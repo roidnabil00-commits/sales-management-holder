@@ -247,18 +247,18 @@ export default function OrdersPage() {
       if (!user) throw new Error('Sesi habis, login ulang.')
 
       const orderPayload = {
-        customer_id: parseInt(selectedCustomerId),
-        sales_id: user.id,
-        doc_type: 'sales_order',
-        status: isEditing ? undefined : 'pending',
-        payment_status: isEditing ? undefined : 'unpaid',
-        total_amount: grandTotal, 
-        tax_amount: taxAmount,    
-        order_no: customOrderNo,  
-        created_at: new Date(customDate).toISOString(), 
-        maker_name: makerName,
-        receiver_name: receiverName
-      }
+  customer_id: parseInt(selectedCustomerId),
+  sales_id: user.id,
+  doc_type: 'sales_order',
+  status: 'shipped', 
+  payment_status: isEditing ? undefined : 'unpaid', 
+  total_amount: grandTotal, 
+  tax_amount: taxAmount,    
+  order_no: customOrderNo,  
+  created_at: new Date(customDate).toISOString(), 
+  maker_name: makerName,
+  receiver_name: receiverName
+}
 
       let savedOrderId = editingId
 
