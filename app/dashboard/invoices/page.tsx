@@ -118,7 +118,8 @@ export default function InvoicesPage() {
       .from('orders')
       .select(`*, customer:customers(name, address, phone), items:order_items(product_id, qty, price, product:products(name, unit, barcode))`)
       .in('status', ['shipped', 'completed']) 
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }) 
+      .order('id', { ascending: false })         
       .limit(50)
     
     if (error) console.error(error)

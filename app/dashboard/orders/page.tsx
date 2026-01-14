@@ -128,8 +128,9 @@ export default function OrdersPage() {
         status, payment_status, 
         customer:customers(name)
       `)
-      .order('created_at', { ascending: false })
-      .limit(50)
+      .order('created_at', { ascending: false }) 
+      .order('id', { ascending: false })         
+     .limit(50)
 
     const { data, error } = await supabaseQuery
     
