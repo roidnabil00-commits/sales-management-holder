@@ -3,7 +3,11 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { Plus, Trash2, Save, Printer, RefreshCw, Calendar, Hash, User, FileSignature, Search as SearchIcon, X, CheckSquare, Square } from 'lucide-react'
+import { 
+  Plus, Trash2, Save, Printer, RefreshCw, Calendar, Hash, User, 
+  FileSignature, Search as SearchIcon, X, CheckSquare, Square, 
+  Truck, CreditCard, Clock, CheckCircle, Edit 
+} from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
@@ -20,6 +24,8 @@ type OrderHistory = {
   maker_name?: string;
   receiver_name?: string;
   items?: any[];
+  status: string;         // Status Logistik
+  payment_status: string; // Status Bayar
 }
 
 // Tipe untuk Selection Product (Checklist)
@@ -116,16 +122,24 @@ export default function OrdersPage() {
     setLoading(true)
     let supabaseQuery = supabase
       .from('orders')
-      .select('id, order_no, total_amount, created_at, tax_amount, maker_name, receiver_name, customer:customers(name)')
+      .select(`
+        id, order_no, total_amount, created_at, 
+        tax_amount, maker_name, receiver_name, 
+        status, payment_status, 
+        customer:customers(name)
+      `)
       .order('created_at', { ascending: false })
       .limit(50)
 
-    if (query) {
-      supabaseQuery = supabaseQuery.ilike('order_no', `%${query}%`)
+    const { data, error } = await supabaseQuery
+    
+    if (data) {
+      const filtered = (data as any[]).filter(o => 
+        o.order_no.toLowerCase().includes(query.toLowerCase()) || 
+        o.customer?.name.toLowerCase().includes(query.toLowerCase())
+      )
+      setOrders(filtered)
     }
-
-    const { data } = await supabaseQuery
-    if (data) setOrders(data as any)
     setLoading(false)
   }
 
@@ -225,7 +239,7 @@ export default function OrdersPage() {
   // --- LOGIC SIMPAN ORDER & DIRECT PRINT ---
   const handleSaveOrder = async () => {
     if (!selectedCustomerId || selectedItems.length === 0 || !customOrderNo) {
-      alert('Mohon lengkapi Pelanggan, Nomor Pesanan, dan minimal 1 Barang!')
+      alert('Mohon lengkapi Data Pelanggan, Nomor Pesanan, dan minimal 1 Barang!')
       return
     }
 
@@ -237,7 +251,8 @@ export default function OrdersPage() {
         customer_id: parseInt(selectedCustomerId),
         sales_id: user.id,
         doc_type: 'sales_order',
-        status: 'pending',
+        status: isEditing ? undefined : 'pending',
+        payment_status: isEditing ? undefined : 'unpaid',
         total_amount: grandTotal, 
         tax_amount: taxAmount,    
         order_no: customOrderNo,  
@@ -250,7 +265,8 @@ export default function OrdersPage() {
 
       if (isEditing && editingId) {
         // --- MODE UPDATE ---
-        const { error: updateError } = await supabase.from('orders').update(orderPayload).eq('id', editingId)
+        const updatePayload = JSON.parse(JSON.stringify(orderPayload));
+        const { error: updateError } = await supabase.from('orders').update(updatePayload).eq('id', editingId)
         if (updateError) throw updateError
 
         const { error: deleteItemError } = await supabase.from('order_items').delete().eq('order_id', editingId)
@@ -338,11 +354,11 @@ export default function OrdersPage() {
       doc.setFont('helvetica', 'bold');
       doc.text('Nomor Order:', rightX, infoY)
       doc.setFont('helvetica', 'normal');
-      doc.text(order.order_no, rightX, infoY + 5)
+      doc.text(order.order_no, rightX + 15, infoY)
       doc.setFont('helvetica', 'bold');
       doc.text('Tanggal:', rightX, infoY + 12)
       doc.setFont('helvetica', 'normal');
-      doc.text(new Date(order.created_at).toLocaleDateString('id-ID', { dateStyle: 'long' }), rightX, infoY + 17)
+      doc.text(new Date(order.created_at).toLocaleDateString('id-ID', { dateStyle: 'long' }), rightX + 15, infoY + 17)
 
       // -- TABEL --
       const tableRows = order.items.map((item: any) => [
@@ -382,6 +398,7 @@ export default function OrdersPage() {
       doc.setFont('helvetica', 'normal')
       doc.text('Sub Total:', summaryXLabel, finalY + 6);      
       doc.text(`Rp ${subTotal.toLocaleString()}`, summaryXValue, finalY + 6, { align: 'right' })
+      
       doc.text('PPN:', summaryXLabel, finalY + 12);           
       doc.text(`Rp ${tax.toLocaleString()}`, summaryXValue, finalY + 12, { align: 'right' })
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
@@ -461,12 +478,33 @@ export default function OrdersPage() {
                   <div className="flex items-center gap-2 text-sm text-gray-900 font-bold">
                     <span>{order.customer?.name}</span>
                   </div>
+
+                  {/* STATUS BADGES */}
+                  <div className="flex gap-2 mt-2">
+                    <span className={`text-xs px-2 py-1 rounded-md font-bold flex items-center gap-1 ${
+                      order.status === 'shipped' ? 'bg-blue-100 text-blue-700' :
+                      order.status === 'completed' ? 'bg-green-100 text-green-700' :
+                      'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      <Truck size={12} />
+                      {order.status === 'shipped' ? 'DIKIRIM' : order.status === 'completed' ? 'SELESAI' : 'MENUNGGU'}
+                    </span>
+
+                    <span className={`text-xs px-2 py-1 rounded-md font-bold flex items-center gap-1 ${
+                      order.payment_status === 'paid' ? 'bg-emerald-100 text-emerald-700' :
+                      'bg-red-100 text-red-700'
+                    }`}>
+                      <CreditCard size={12} />
+                      {order.payment_status === 'paid' ? 'LUNAS' : 'BELUM BAYAR'}
+                    </span>
+                  </div>
                 </div>
+
                 <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
                   <span className="font-bold text-gray-900 text-xl">Rp {order.total_amount.toLocaleString()}</span>
                   <div className="flex gap-2">
                     <button onClick={() => handleEditOrder(order.id)} className="p-2 text-blue-500 border border-blue-100 rounded-lg hover:bg-blue-600 hover:text-white transition shadow-sm" title="Edit">
-                      <X size={18} className="rotate-45" /> {/* Icon Pencil gak ada di import tadi, pake X rotate mirip pencil atau ganti ke Edit icon */}
+                      <Edit size={18} />
                     </button>
                     <button onClick={() => generatePDF(order.id)} className="p-2 text-gray-600 border border-gray-200 rounded-lg hover:bg-white hover:text-blue-600 hover:border-blue-300 transition shadow-sm" title="Cetak">
                       <Printer size={18} />
