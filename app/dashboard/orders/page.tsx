@@ -341,7 +341,7 @@ export default function OrdersPage() {
       
       // -- INFO ORDER --
       const leftX = 15;
-      const rightX = 130;
+      const rightX = 120; 
       const infoY = 58;
 
       doc.setFontSize(10); doc.setFont('helvetica', 'bold');
@@ -354,11 +354,12 @@ export default function OrdersPage() {
       doc.setFont('helvetica', 'bold');
       doc.text('Nomor Order:', rightX, infoY)
       doc.setFont('helvetica', 'normal');
-      doc.text(order.order_no, rightX + 15, infoY)
+      doc.text(order.order_no, rightX + 30, infoY)
+      
       doc.setFont('helvetica', 'bold');
-      doc.text('Tanggal:', rightX, infoY + 12)
+      doc.text('Tanggal:', rightX, infoY + 6) 
       doc.setFont('helvetica', 'normal');
-      doc.text(new Date(order.created_at).toLocaleDateString('id-ID', { dateStyle: 'long' }), rightX + 15, infoY + 17)
+      doc.text(new Date(order.created_at).toLocaleDateString('id-ID', { dateStyle: 'long' }), rightX + 30, infoY + 6)
 
       // -- TABEL --
       const tableRows = order.items.map((item: any) => [

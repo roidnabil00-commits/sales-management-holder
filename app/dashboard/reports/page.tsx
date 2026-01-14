@@ -3,7 +3,10 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { FileText, Filter, Trash2, Calendar, Search, RefreshCw, Download } from 'lucide-react'
+import { 
+  FileText, Filter, Trash2, Calendar, Search, 
+  Download, Eye, X, User, Clock, CheckCircle, Package 
+} from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
@@ -15,26 +18,35 @@ export default function ReportsPage() {
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0].slice(0, 7) + '-01') // Awal bulan
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]) // Hari ini
   const [statusFilter, setStatusFilter] = useState('all') // all, pending, shipped, paid
+  
+  // Search State
+  const [searchTerm, setSearchTerm] = useState('')
+
+  // Modal Detail State
+  const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
 
   useEffect(() => {
     fetchReports()
-  }, []) // First load
+  }, []) 
 
   const fetchReports = async () => {
     setLoading(true)
     
+    // UPDATE QUERY: Tambahkan relation ke items & product untuk detail barang
     let query = supabase
       .from('orders')
       .select(`
         *,
-        customer:customers(name)
+        customer:customers(name),
+        items:order_items(
+          qty, 
+          price, 
+          product:products(name, unit)
+        )
       `)
       .gte('created_at', startDate)
       .lte('created_at', endDate + 'T23:59:59')
       .order('created_at', { ascending: false })
-
-    // Apply Logic Filter Client-side/Query
-    // Supabase filter limitations make simple combined logic harder, so we filter array below for status
     
     const { data, error } = await query
 
@@ -44,8 +56,9 @@ export default function ReportsPage() {
       return
     }
 
-    // Client Side Filtering untuk Status Gabungan (Logistik & Finance)
     let filteredData = data || []
+
+    // 1. Logic Filter Status
     if (statusFilter !== 'all') {
       filteredData = filteredData.filter((o: any) => {
         if (statusFilter === 'pending') return o.status === 'pending'
@@ -54,6 +67,15 @@ export default function ReportsPage() {
         if (statusFilter === 'unpaid') return o.payment_status === 'unpaid' && o.status === 'shipped'
         return true
       })
+    }
+
+    // 2. Logic Filter Search (No Order / Customer)
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      filteredData = filteredData.filter((o: any) => 
+        o.order_no.toLowerCase().includes(term) || 
+        (o.customer?.name || '').toLowerCase().includes(term)
+      )
     }
 
     setOrders(filteredData)
@@ -113,7 +135,7 @@ export default function ReportsPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Laporan & Riwayat</h2>
-          <p className="text-sm text-gray-500">Rekapitulasi seluruh transaksi (SO, DO, Invoice)</p>
+          <p className="text-sm text-gray-500">Rekapitulasi seluruh transaksi & audit trail</p>
         </div>
         <button 
           onClick={handleExportPDF}
@@ -123,27 +145,25 @@ export default function ReportsPage() {
         </button>
       </div>
 
-      {/* --- FILTER BAR --- */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4 items-end md:items-center">
-        <div className="w-full md:w-auto">
+      {/* --- FILTER & SEARCH BAR --- */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+        
+        {/* Tanggal */}
+        <div className="md:col-span-2">
           <label className="text-xs font-bold text-gray-500 block mb-1">Dari Tanggal</label>
-          <div className="flex items-center gap-2 border rounded-lg p-2 bg-gray-50">
-            <Calendar size={16} className="text-gray-400"/>
-            <input type="date" className="bg-transparent outline-none text-sm text-gray-900" 
-              value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          </div>
+          <input type="date" className="w-full border rounded-lg p-2 text-sm text-gray-900 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500" 
+            value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         </div>
-        <div className="w-full md:w-auto">
+        <div className="md:col-span-2">
           <label className="text-xs font-bold text-gray-500 block mb-1">Sampai Tanggal</label>
-          <div className="flex items-center gap-2 border rounded-lg p-2 bg-gray-50">
-             <Calendar size={16} className="text-gray-400"/>
-             <input type="date" className="bg-transparent outline-none text-sm text-gray-900" 
-               value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-          </div>
+           <input type="date" className="w-full border rounded-lg p-2 text-sm text-gray-900 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500" 
+             value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         </div>
-        <div className="w-full md:w-48">
+
+        {/* Status */}
+        <div className="md:col-span-3">
           <label className="text-xs font-bold text-gray-500 block mb-1">Status Transaksi</label>
-          <div className="flex items-center gap-2 border rounded-lg p-2 bg-gray-50">
+           <div className="flex items-center gap-2 border rounded-lg p-2 bg-gray-50">
              <Filter size={16} className="text-gray-400"/>
              <select className="bg-transparent outline-none text-sm text-gray-900 w-full"
                value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
@@ -155,12 +175,31 @@ export default function ReportsPage() {
              </select>
           </div>
         </div>
-        <button 
-          onClick={fetchReports}
-          className="bg-blue-600 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-blue-700 h-[42px] flex items-center gap-2"
-        >
-          <Search size={18} /> Tampilkan
-        </button>
+
+        {/* Search Bar */}
+        <div className="md:col-span-3">
+           <label className="text-xs font-bold text-gray-500 block mb-1">Cari No. Order / Pelanggan</label>
+           <div className="flex items-center gap-2 border rounded-lg p-2 bg-white ring-1 ring-gray-200 focus-within:ring-2 focus-within:ring-blue-500 transition">
+              <Search size={16} className="text-blue-500"/>
+              <input 
+                type="text" 
+                placeholder="Contoh: SO-2026..." 
+                className="w-full outline-none text-sm text-gray-900 font-medium placeholder:font-normal"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && fetchReports()}
+              />
+           </div>
+        </div>
+
+        <div className="md:col-span-2">
+          <button 
+            onClick={fetchReports}
+            className="w-full bg-blue-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-blue-700 h-[40px] flex justify-center items-center gap-2 shadow-md transition"
+          >
+            <Search size={18} /> Cari
+          </button>
+        </div>
       </div>
 
       {/* --- TABLE LAPORAN --- */}
@@ -181,13 +220,15 @@ export default function ReportsPage() {
               {loading ? (
                  <tr><td colSpan={6} className="p-8 text-center text-gray-500">Sedang memuat laporan...</td></tr>
               ) : orders.length === 0 ? (
-                 <tr><td colSpan={6} className="p-8 text-center text-gray-500">Tidak ada data pada periode ini.</td></tr>
+                 <tr><td colSpan={6} className="p-8 text-center text-gray-500">Tidak ada data ditemukan.</td></tr>
               ) : (
                 orders.map((o) => (
-                  <tr key={o.id} className="hover:bg-gray-50 transition">
+                  <tr key={o.id} className="hover:bg-blue-50 transition group">
                     <td className="px-6 py-4">
-                      <div className="font-bold text-gray-900">{o.order_no}</div>
-                      <div className="text-xs text-gray-500">{new Date(o.created_at).toLocaleDateString('id-ID')}</div>
+                      <div className="font-bold text-blue-700">{o.order_no}</div>
+                      <div className="text-xs text-gray-500 flex items-center gap-1">
+                        <Calendar size={10}/> {new Date(o.created_at).toLocaleDateString('id-ID')}
+                      </div>
                     </td>
                     <td className="px-6 py-4 font-medium text-gray-800">
                       {o.customer?.name}
@@ -208,10 +249,20 @@ export default function ReportsPage() {
                     <td className="px-6 py-4 text-right font-bold text-gray-900">
                       Rp {o.total_amount.toLocaleString()}
                     </td>
-                    <td className="px-6 py-4 text-center">
+                    <td className="px-6 py-4 text-center flex justify-center gap-2">
+                       {/* Tombol Detail */}
+                       <button 
+                        onClick={() => setSelectedOrder(o)}
+                        className="p-2 text-blue-500 hover:text-white hover:bg-blue-500 border border-blue-100 rounded-lg transition shadow-sm"
+                        title="Lihat Detail & Item"
+                      >
+                        <Eye size={18} />
+                      </button>
+                      
+                      {/* Tombol Hapus */}
                       <button 
                         onClick={() => handleDelete(o.id)}
-                        className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                        className="p-2 text-red-400 hover:text-white hover:bg-red-500 border border-red-100 rounded-lg transition shadow-sm"
                         title="Hapus Permanen"
                       >
                         <Trash2 size={18} />
@@ -236,6 +287,107 @@ export default function ReportsPage() {
           </table>
         </div>
       </div>
+
+      {/* --- MODAL DETAIL RIWAYAT & ITEMS --- */}
+      {selectedOrder && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+           <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+              
+              {/* HEADER MODAL */}
+              <div className="bg-gray-900 p-4 flex justify-between items-center text-white shrink-0">
+                 <h3 className="font-bold flex items-center gap-2"><Clock size={18}/> Detail Transaksi</h3>
+                 <button onClick={() => setSelectedOrder(null)} className="hover:text-red-400 transition"><X size={20}/></button>
+              </div>
+              
+              {/* BODY MODAL (Scrollable) */}
+              <div className="p-6 space-y-4 overflow-y-auto">
+                 <div className="text-center mb-4">
+                    <p className="text-sm text-gray-500">Nomor Referensi</p>
+                    <p className="text-2xl font-bold text-blue-600">{selectedOrder.order_no}</p>
+                 </div>
+
+                 {/* INFO UTAMA */}
+                 <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                       <p className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 mb-1"><Calendar size={12}/> Waktu</p>
+                       <p className="font-bold text-gray-800 text-sm">
+                         {new Date(selectedOrder.created_at).toLocaleDateString('id-ID')}
+                       </p>
+                       <p className="text-xs text-gray-500">
+                         {new Date(selectedOrder.created_at).toLocaleTimeString('id-ID')} WIB
+                       </p>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                        <p className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 mb-1"><User size={12}/> Admin</p>
+                        <p className="font-bold text-gray-800 text-sm truncate">
+                           {selectedOrder.maker_name || 'System Admin'}
+                        </p>
+                    </div>
+                 </div>
+
+                 {/* TABEL ITEM BARANG (NEW FEATURE) */}
+                 <div>
+                    <p className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-1"><Package size={14}/> Rincian Barang</p>
+                    <div className="bg-gray-50 rounded-lg border border-gray-100 overflow-hidden">
+                       <table className="w-full text-sm text-left">
+                          <thead className="bg-gray-100 text-xs text-gray-600 uppercase">
+                             <tr>
+                                <th className="px-3 py-2">Produk</th>
+                                <th className="px-3 py-2 text-center">Qty</th>
+                                <th className="px-3 py-2 text-right">Total</th>
+                             </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                             {selectedOrder.items?.map((item: any, idx: number) => (
+                                <tr key={idx}>
+                                   <td className="px-3 py-2">
+                                      <p className="font-bold text-gray-800 text-xs">{item.product?.name}</p>
+                                      <p className="text-[10px] text-gray-500">@ Rp {item.price.toLocaleString()}</p>
+                                   </td>
+                                   <td className="px-3 py-2 text-center text-xs text-gray-700">
+                                      {item.qty} {item.product?.unit}
+                                   </td>
+                                   <td className="px-3 py-2 text-right font-bold text-xs text-gray-900">
+                                      Rp {(item.qty * item.price).toLocaleString()}
+                                   </td>
+                                </tr>
+                             ))}
+                             {(!selectedOrder.items || selectedOrder.items.length === 0) && (
+                                <tr><td colSpan={3} className="text-center p-3 text-xs text-gray-400">Tidak ada detail barang.</td></tr>
+                             )}
+                          </tbody>
+                       </table>
+                    </div>
+                 </div>
+
+                 {/* INFO PENERIMA & STATUS */}
+                 <div className="space-y-2">
+                    <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
+                       <div className="flex items-center gap-2">
+                          <div className="bg-blue-200 p-1.5 rounded-full text-blue-700"><CheckCircle size={14}/></div>
+                          <span className="text-sm font-bold text-blue-900">Penerima</span>
+                       </div>
+                       <span className="font-bold text-gray-900 text-sm text-right">{selectedOrder.receiver_name || selectedOrder.customer?.name}</span>
+                    </div>
+                 </div>
+
+                 {/* FOOTER TOTAL */}
+                 <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+                    <span className="text-gray-500 text-sm">Total Transaksi</span>
+                    <span className="font-bold text-2xl text-blue-700">Rp {selectedOrder.total_amount.toLocaleString()}</span>
+                 </div>
+              </div>
+
+              {/* FOOTER MODAL (CLOSE BUTTON) */}
+              <div className="p-4 bg-gray-50 border-t border-gray-200 text-center shrink-0">
+                 <button onClick={() => setSelectedOrder(null)} className="w-full bg-white border border-gray-300 text-gray-700 font-bold py-2 rounded-lg hover:bg-gray-100 transition text-sm">
+                    Tutup
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
     </div>
   )
 }
