@@ -168,22 +168,56 @@ export default function PerformanceHubPage() {
   }
 
   // --- LOGIC AI ---
-  const handleSendMessage = () => {
+  // --- REAL AI LOGIC (GEMINI INTEGRATION) ---
+  const handleSendMessage = async () => {
     if (!inputMessage.trim()) return
-    const userMsg: ChatMessage = { id: Date.now(), sender: 'user', text: inputMessage, timestamp: new Date().toLocaleTimeString() }
+
+    // 1. Tampilkan pesan User
+    const userMsg: ChatMessage = { 
+      id: Date.now(), 
+      sender: 'user', 
+      text: inputMessage, 
+      timestamp: new Date().toLocaleTimeString() 
+    }
+    
     setChatHistory(prev => [...prev, userMsg])
     setInputMessage('')
-    setIsAiTyping(true)
-    setTimeout(() => {
-      let reply = "Saya perlu detail lebih lanjut."
-      const lower = userMsg.text.toLowerCase()
-      if (lower.includes('halo')) reply = "Halo Partner! Fokus kita hari ini adalah closing. Ada prospek 'panas' yang perlu difollow-up?"
-      else if (lower.includes('script')) reply = "Coba pendekatan konsultatif: 'Halo Pak, banyak bisnis ritel kesulitan kontrol stok. Xander Systems bisa otomatisasi itu. Boleh diskusi sebentar?'"
-      else if (lower.includes('motivasi')) reply = "Ingat: Penolakan adalah bagian dari proses. Setiap 'Tidak' membawamu lebih dekat ke 'Ya'."
-      setChatHistory(prev => [...prev, { id: Date.now()+1, sender: 'ai', text: reply, timestamp: new Date().toLocaleTimeString() }])
-      setIsAiTyping(false)
+    setIsAiTyping(true) // Animasi mengetik nyala
+
+    try {
+      // 2. Panggil API Route Backend
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMsg.text })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) throw new Error(data.error || 'Gagal memuat')
+
+      // 3. Tampilkan balasan Gemini
+      const aiMsg: ChatMessage = { 
+        id: Date.now() + 1, 
+        sender: 'ai', 
+        text: data.reply, // Ini teks asli dari Gemini
+        timestamp: new Date().toLocaleTimeString() 
+      }
+      setChatHistory(prev => [...prev, aiMsg])
+
+    } catch (error) {
+      // Error handling kalau internet mati / API error
+      const errorMsg: ChatMessage = { 
+        id: Date.now() + 1, 
+        sender: 'ai', 
+        text: "Maaf Pak, koneksi ke server AI terganggu. Silakan coba lagi.", 
+        timestamp: new Date().toLocaleTimeString() 
+      }
+      setChatHistory(prev => [...prev, errorMsg])
+    } finally {
+      setIsAiTyping(false) // Animasi mati
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, 1500)
+    }
   }
 
   // --- RENDER HELPERS ---
