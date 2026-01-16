@@ -1,6 +1,7 @@
 // app/dashboard/layout.tsx
 'use client'
 
+import { appConfig } from '@/lib/appConfig'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -63,7 +64,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* --- SIDEBAR (Desktop) --- */}
       <aside className="hidden md:flex w-64 flex-col bg-white border-r border-gray-200 fixed h-full z-10">
         <div className="p-6 border-b border-gray-100">
-          <h1 className="text-xl font-bold text-blue-600">Xander Sales</h1>
+          <h1 className="text-xl font-bold text-blue-600">{appConfig.brandName}</h1>
           <p className="text-xs text-gray-500 mt-1">Sistem Distribusi</p>
         </div>
 
@@ -105,7 +106,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* --- MOBILE HEADER (Muncul di HP) --- */}
       <div className="md:hidden fixed top-0 w-full bg-white border-b border-gray-200 z-20 flex items-center justify-between p-4">
-        <span className="font-bold text-blue-600">Xander Sales</span>
+        <span className="font-bold text-blue-600">{appConfig.brandName}</span>
         <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
           <Menu className="text-gray-600" />
         </button>

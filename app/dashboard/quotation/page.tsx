@@ -1,11 +1,13 @@
 // app/dashboard/quotation/page.tsx
 'use client'
 
+import { appConfig } from '@/lib/appConfig'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { FileText, Plus, Trash2, Printer, ArrowRightCircle, Calendar, Hash, Search, Save, CheckSquare, Square } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+
 
 // Tipe Data
 type Product = { id: number; name: string; price: number; unit: string }
@@ -219,13 +221,11 @@ export default function QuotationPage() {
 
     const doc = new jsPDF()
     
-    // KOP SURAT
     doc.setFontSize(18); doc.setFont('helvetica', 'bold');
-    doc.text('XANDER SYSTEMS & BAKERY', 14, 20)
+    doc.text(appConfig.companyName, 14, 20)
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-    doc.text('Jl. Teknologi Masa Depan No. 1, Jakarta Selatan', 14, 26)
-    doc.text('Email: sales@xander.com | Telp: 021-555-888', 14, 31)
-    doc.line(14, 35, 196, 35)
+    doc.text(appConfig.companyAddress, 14, 26)
+    doc.text(appConfig.companyContact, 14, 31)
 
     // INFO
     const suratDate = new Date(order.created_at).toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})
@@ -276,7 +276,7 @@ export default function QuotationPage() {
     doc.text('Demikian penawaran ini kami sampaikan. Atas perhatian dan kerjasamanya kami ucapkan terima kasih.', 14, finalY + 45)
 
     doc.text('Hormat Kami,', 14, finalY + 60)
-    doc.text('Xander Sales Team', 14, finalY + 85)
+    doc.text(appConfig.brandName + ' Team', 14, finalY + 85)
 
     // POPUP PRINT
     doc.autoPrint();

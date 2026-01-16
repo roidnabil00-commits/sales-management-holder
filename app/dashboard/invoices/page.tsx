@@ -1,6 +1,7 @@
 // app/dashboard/invoices/page.tsx
 'use client'
 
+import { appConfig } from '@/lib/appConfig'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { 
@@ -269,14 +270,13 @@ export default function InvoicesPage() {
   const generateInvoicePDF = async (order: any) => {
     const doc = new jsPDF({ format: 'a4', unit: 'mm' })
     
-    // HEADER
+    // HEADER KOP SURAT DINAMIS
     doc.setFontSize(22); doc.setFont('helvetica', 'bold');
-    doc.text('XANDER SYSTEMS', 105, 20, { align: 'center' })
+    doc.text(appConfig.companyName.toUpperCase(), 105, 20, { align: 'center' })
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-    doc.text('Distribusi Roti & Kue Pilihan', 105, 26, { align: 'center' })
-    doc.text('Jl. Raya Puncak No. 1, Bogor - Telp: 021-555-888', 105, 31, { align: 'center' })
-    doc.setLineWidth(0.5); doc.line(15, 36, 195, 36);
-
+    doc.text(appConfig.companyTagline, 105, 26, { align: 'center' })
+    doc.text(appConfig.companyContact, 105, 31, { align: 'center' })
+    
     // JUDUL
     doc.setFontSize(16); doc.setFont('helvetica', 'bold');
     doc.text('INVOICE / FAKTUR', 105, 48, { align: 'center' })

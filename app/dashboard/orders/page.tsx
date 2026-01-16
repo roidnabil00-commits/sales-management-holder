@@ -1,6 +1,7 @@
 // app/dashboard/orders/page.tsx
 'use client'
 
+import { appConfig } from '@/lib/appConfig'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { 
@@ -327,14 +328,12 @@ export default function OrdersPage() {
 
       const doc = new jsPDF({ format: 'a4', unit: 'mm' })
       
-      // -- HEADER --
-      doc.setFontSize(22); doc.setFont('helvetica', 'bold');
-      doc.text('XANDER SYSTEMS', 105, 20, { align: 'center' }) 
+      // KOP SURAT PESANAN DINAMIS
+      doc.setFontSize(18); doc.setFont('helvetica', 'bold');
+      doc.text(appConfig.companyName, 14, 20) 
       doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-      doc.text('Distribusi Roti & Kue Pilihan', 105, 26, { align: 'center' })
-      doc.text('Jl. Raya Puncak No. 1, Bogor - Telp: 021-12345678', 105, 31, { align: 'center' })
-      doc.setLineWidth(0.5);
-      doc.line(15, 36, 195, 36);
+      doc.text(appConfig.companyAddress, 14, 26)
+      doc.text(appConfig.companyContact, 14, 31)
 
       // -- JUDUL --
       doc.setFontSize(16); doc.setFont('helvetica', 'bold');
