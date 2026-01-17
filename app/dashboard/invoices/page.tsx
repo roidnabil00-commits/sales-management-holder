@@ -14,12 +14,11 @@ import {
   Search as SearchIcon, 
   CheckSquare, 
   Square,
-  User,
-  FileSignature,
   RefreshCw,
   Truck,
   CreditCard,
-  Percent
+  ChevronLeft,  // [NEW]
+  ChevronRight  // [NEW]
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -72,6 +71,12 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   
+  // --- STATE PAGINATION ---
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(10) 
+  const [totalPages, setTotalPages] = useState(0)
+  const [totalCount, setTotalCount] = useState(0)
+
   // State Form
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
@@ -107,37 +112,70 @@ export default function InvoicesPage() {
       setProducts(prods)
     }
 
-    await fetchInvoices()
+    await fetchInvoices(1) // Load halaman 1
     setLoading(false)
   }
 
-  // --- FETCH & SEARCH ---
-  const fetchInvoices = async (query = '') => {
+  // --- FETCH & SEARCH (HYBRID PAGINATION) ---
+  const fetchInvoices = async (page = 1, query = '') => {
     setLoading(true)
-    // Ambil data invoice (yang statusnya shipped atau completed)
-    const { data, error } = await supabase
+    
+    // Hitung range
+    const from = (page - 1) * itemsPerPage
+    const to = from + itemsPerPage - 1
+
+    let supabaseQuery = supabase
       .from('orders')
-      .select(`*, customer:customers(name, address, phone), items:order_items(product_id, qty, price, product:products(name, unit, barcode))`)
-      .in('status', ['shipped', 'completed']) 
+      .select(`*, customer:customers(name, address, phone), items:order_items(product_id, qty, price, product:products(name, unit, barcode))`, { count: 'exact' })
+      .in('status', ['shipped', 'completed']) // Filter Invoice: Hanya yg dikirim/selesai
       .order('created_at', { ascending: false }) 
       .order('id', { ascending: false })         
-      .limit(50)
     
-    if (error) console.error(error)
-    else {
+    // Hybrid Logic
+    if (!query) {
+      supabaseQuery = supabaseQuery.range(from, to)
+    } else {
+      supabaseQuery = supabaseQuery.limit(100) 
+    }
+    
+    const { data, count, error } = await supabaseQuery
+
+    if (error) {
+      console.error(error)
+    } else {
+      let filtered = data as any[]
+      
       // Client-side filter untuk search
-      const filtered = (data as any[]).filter(inv => 
-        inv.order_no.toLowerCase().includes(query.toLowerCase()) || 
-        inv.customer?.name.toLowerCase().includes(query.toLowerCase())
-      )
+      if(query) {
+        filtered = filtered.filter(inv => 
+          inv.order_no.toLowerCase().includes(query.toLowerCase()) || 
+          inv.customer?.name.toLowerCase().includes(query.toLowerCase())
+        )
+        setTotalPages(1)
+        setTotalCount(filtered.length)
+      } else {
+        if(count) {
+          setTotalCount(count)
+          setTotalPages(Math.ceil(count / itemsPerPage))
+        }
+      }
       setInvoices(filtered)
     }
     setLoading(false)
   }
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value)
-    fetchInvoices(e.target.value)
+    const val = e.target.value
+    setSearchTerm(val)
+    setCurrentPage(1)
+    fetchInvoices(1, val)
+  }
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+      fetchInvoices(newPage, searchTerm)
+    }
   }
 
   // --- CHECKLIST LOGIC ---
@@ -259,7 +297,7 @@ export default function InvoicesPage() {
       await generateInvoicePDF(updatedOrder)
 
       setIsFormOpen(false)
-      fetchInvoices() // Refresh list
+      fetchInvoices(currentPage) // Refresh list di halaman yg sama
 
     } catch (err: any) {
       alert('Gagal proses: ' + err.message)
@@ -357,7 +395,7 @@ export default function InvoicesPage() {
     if (!confirm('PERHATIAN: Hapus Invoice ini? Data penjualan akan hilang permanen.')) return
     await supabase.from('order_items').delete().eq('order_id', id)
     await supabase.from('orders').delete().eq('id', id)
-    fetchInvoices()
+    fetchInvoices(currentPage)
   }
 
   return (
@@ -367,7 +405,7 @@ export default function InvoicesPage() {
           <h2 className="text-2xl font-bold text-gray-900">Faktur Penjualan</h2>
           <p className="text-sm text-gray-700 font-bold">Kelola tagihan, status pembayaran, dan cetak invoice</p>
         </div>
-        <button onClick={() => fetchInvoices()} className="text-blue-700 hover:text-blue-900"><RefreshCw size={24}/></button>
+        <button onClick={() => fetchInvoices(currentPage)} className="text-blue-700 hover:text-blue-900"><RefreshCw size={24}/></button>
       </div>
 
       {/* SEARCH BAR */}
@@ -383,6 +421,13 @@ export default function InvoicesPage() {
 
       {/* TABEL LIST */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        
+        {/* INFO TOTAL DATA */}
+        <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+             <h3 className="font-bold text-gray-900 text-sm">Daftar Invoice</h3>
+             {!loading && <span className="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">{totalCount} Data</span>}
+        </div>
+
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-100 text-gray-900 font-bold border-b border-gray-300 uppercase">
             <tr>
@@ -443,6 +488,56 @@ export default function InvoicesPage() {
             )}
           </tbody>
         </table>
+
+        {/* --- PAGINATION CONTROLS (FOOTER) --- */}
+        {!searchTerm && (
+          <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-center items-center gap-4">
+             <button 
+               onClick={() => handlePageChange(currentPage - 1)}
+               disabled={currentPage === 1}
+               className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50 transition"
+             >
+               <ChevronLeft size={20} />
+             </button>
+             
+             {/* Info Halaman */}
+             <span className="text-sm font-bold text-gray-600">
+                Hal {currentPage} / {totalPages || 1}
+             </span>
+
+             <div className="flex gap-2">
+                {Array.from({ length: totalPages || 1 }, (_, i) => i + 1).map((page) => {
+                   if(page === 1 || page === (totalPages || 1) || (page >= currentPage - 1 && page <= currentPage + 1)) {
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => handlePageChange(page)}
+                          className={`w-8 h-8 rounded-lg font-bold text-sm flex items-center justify-center transition ${
+                             currentPage === page 
+                             ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+                             : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      )
+                   } else if(page === currentPage - 2 || page === currentPage + 2) {
+                      return <span key={page} className="self-end px-1 text-gray-400">...</span>
+                   }
+                   return null
+                })}
+             </div>
+
+             <button 
+               onClick={() => handlePageChange(currentPage + 1)}
+               disabled={currentPage === (totalPages || 1)}
+               className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50 transition"
+             >
+               <ChevronRight size={20} />
+             </button>
+          </div>
+        )}
+
       </div>
 
       {/* --- FORM MODAL --- */}
@@ -469,7 +564,7 @@ export default function InvoicesPage() {
                 </div>
               </div>
 
-              {/* RADIO BUTTON STATUS PEMBAYARAN (RESTORED) */}
+              {/* RADIO BUTTON STATUS PEMBAYARAN */}
               <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200">
                 <label className="text-sm font-black text-yellow-900 uppercase mb-3 block">Status Pembayaran</label>
                 <div className="flex gap-6">

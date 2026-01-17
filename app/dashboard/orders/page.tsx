@@ -7,12 +7,13 @@ import { supabase } from '@/lib/supabaseClient'
 import { 
   Plus, Trash2, Save, Printer, RefreshCw, Calendar, Hash, User, 
   FileSignature, Search as SearchIcon, X, CheckSquare, Square, 
-  Truck, CreditCard, Clock, CheckCircle, Edit 
+  Truck, CreditCard, Clock, CheckCircle, Edit, 
+  ChevronLeft, ChevronRight 
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
-// Tipe Data
+// --- TIPE DATA ---
 type Product = { id: number; name: string; price: number; unit: string; barcode: string | null }
 type Customer = { id: number; name: string; address: string }
 type OrderHistory = { 
@@ -43,6 +44,12 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<OrderHistory[]>([]) 
   const [loading, setLoading] = useState(true)
   
+  // --- STATE PAGINATION ---
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(10) // Tampilkan 10 data per halaman
+  const [totalPages, setTotalPages] = useState(0)
+  const [totalCount, setTotalCount] = useState(0)
+
   // State Form Transaksi
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isEditing, setIsEditing] = useState(false) 
@@ -101,7 +108,7 @@ export default function OrdersPage() {
     const { data: custData } = await supabase.from('customers').select('id, name, address')
     const { data: prodData } = await supabase.from('products').select('*').eq('is_active', true)
     
-    await fetchOrders()
+    await fetchOrders(1) // Load halaman 1
 
     if (custData) setCustomers(custData)
     
@@ -119,8 +126,14 @@ export default function OrdersPage() {
     setLoading(false)
   }
 
-  const fetchOrders = async (query = '') => {
+  // --- FETCH ORDERS (HYBRID PAGINATION) ---
+  const fetchOrders = async (page = 1, query = '') => {
     setLoading(true)
+    
+    // Hitung range data (0-9, 10-19, dst)
+    const from = (page - 1) * itemsPerPage
+    const to = from + itemsPerPage - 1
+
     let supabaseQuery = supabase
       .from('orders')
       .select(`
@@ -128,26 +141,57 @@ export default function OrdersPage() {
         tax_amount, maker_name, receiver_name, 
         status, payment_status, 
         customer:customers(name)
-      `)
+      `, { count: 'exact' }) // Minta total count
       .order('created_at', { ascending: false }) 
       .order('id', { ascending: false })         
-     .limit(50)
 
-    const { data, error } = await supabaseQuery
+    // LOGIKA HYBRID:
+    // Jika tidak ada search -> Pakai Pagination Database (.range)
+    // Jika ada search -> Ambil banyak (.limit 100) lalu filter di client
+    if (!query) {
+      supabaseQuery = supabaseQuery.range(from, to)
+    } else {
+      supabaseQuery = supabaseQuery.limit(100) 
+    }
+
+    const { data, count, error } = await supabaseQuery
     
     if (data) {
-      const filtered = (data as any[]).filter(o => 
-        o.order_no.toLowerCase().includes(query.toLowerCase()) || 
-        o.customer?.name.toLowerCase().includes(query.toLowerCase())
-      )
-      setOrders(filtered)
+      let finalData = data as any[]
+      
+      // Filter Search Client-side
+      if (query) {
+        finalData = finalData.filter(o => 
+          o.order_no.toLowerCase().includes(query.toLowerCase()) || 
+          o.customer?.name.toLowerCase().includes(query.toLowerCase())
+        )
+        // Saat search, pagination dimatikan sementara (tampil semua hasil search)
+        setTotalPages(1) 
+        setTotalCount(finalData.length)
+      } else {
+        // Mode Normal (Pagination Aktif)
+        if (count) {
+          setTotalCount(count)
+          setTotalPages(Math.ceil(count / itemsPerPage))
+        }
+      }
+      setOrders(finalData)
     }
     setLoading(false)
   }
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value)
-    fetchOrders(e.target.value)
+    const val = e.target.value
+    setSearchTerm(val)
+    setCurrentPage(1) // Reset ke halaman 1 saat mengetik
+    fetchOrders(1, val)
+  }
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+      fetchOrders(newPage, searchTerm)
+    }
   }
 
   // --- LOGIC CHECKLIST PRODUCT ---
@@ -294,7 +338,7 @@ export default function OrdersPage() {
 
       // --- INTEGRASI DIRECT PRINT ---
       setIsFormOpen(false)
-      fetchOrders() 
+      fetchOrders(currentPage) // Refresh halaman saat ini
       if(savedOrderId) await generatePDF(savedOrderId)
 
     } catch (error: any) {
@@ -309,7 +353,7 @@ export default function OrdersPage() {
       const { error } = await supabase.from('orders').delete().eq('id', id)
       if(error) throw error
       alert('Data berhasil dihapus.')
-      fetchOrders()
+      fetchOrders(currentPage) // Refresh halaman saat ini
     } catch (err: any) {
       alert('Gagal hapus: ' + err.message)
     }
@@ -449,6 +493,7 @@ export default function OrdersPage() {
         <div className="p-4 border-b border-gray-200 bg-gray-50 flex flex-col md:flex-row justify-between items-center gap-4">
           <h3 className="font-bold text-gray-900 flex items-center gap-2">
             Riwayat Transaksi
+            {!loading && <span className="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">{totalCount} Data</span>}
             {loading && <RefreshCw size={14} className="animate-spin text-gray-500"/>}
           </h3>
           <div className="relative w-full md:w-64">
@@ -519,6 +564,56 @@ export default function OrdersPage() {
             ))
           )}
         </div>
+
+        {/* --- PAGINATION CONTROLS (FOOTER) --- */}
+        {!searchTerm && (
+          <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-center items-center gap-4">
+             <button 
+               onClick={() => handlePageChange(currentPage - 1)}
+               disabled={currentPage === 1}
+               className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50 transition"
+             >
+               <ChevronLeft size={20} />
+             </button>
+             
+             {/* Info Halaman */}
+             <span className="text-sm font-bold text-gray-600">
+                Hal {currentPage} / {totalPages || 1}
+             </span>
+
+             <div className="flex gap-2">
+                {Array.from({ length: totalPages || 1 }, (_, i) => i + 1).map((page) => {
+                   if(page === 1 || page === (totalPages || 1) || (page >= currentPage - 1 && page <= currentPage + 1)) {
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => handlePageChange(page)}
+                          className={`w-8 h-8 rounded-lg font-bold text-sm flex items-center justify-center transition ${
+                             currentPage === page 
+                             ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+                             : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      )
+                   } else if(page === currentPage - 2 || page === currentPage + 2) {
+                      return <span key={page} className="self-end px-1 text-gray-400">...</span>
+                   }
+                   return null
+                })}
+             </div>
+
+             <button 
+               onClick={() => handlePageChange(currentPage + 1)}
+               disabled={currentPage === (totalPages || 1)}
+               className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50 transition"
+             >
+               <ChevronRight size={20} />
+             </button>
+          </div>
+        )}
+
       </div>
 
       {/* --- FORM MODAL (CHECKLIST STYLE) --- */}

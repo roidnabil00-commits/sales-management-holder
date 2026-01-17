@@ -64,8 +64,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* --- SIDEBAR (Desktop) --- */}
       <aside className="hidden md:flex w-64 flex-col bg-white border-r border-gray-200 fixed h-full z-10">
         <div className="p-6 border-b border-gray-100">
-          <h1 className="text-xl font-bold text-blue-600">{appConfig.brandName}</h1>
-          <p className="text-xs text-gray-500 mt-1">Sistem Distribusi</p>
+          <div className="flex items-center gap-3">
+            {/* LOGO (Jika ada di config) */}
+            {appConfig.brandLogo && (
+              <img 
+                src={appConfig.brandLogo} 
+                alt="Logo" 
+                className="h-10 w-auto object-contain" 
+              />
+            )}
+            
+            {/* TEKS NAMA BRAND */}
+            <div>
+              <h1 className="text-xl font-bold text-blue-600 leading-tight">
+                {appConfig.brandName}
+              </h1>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">Sistem Distribusi</p>
         </div>
 
         <nav className="flex-1 overflow-y-auto p-4 space-y-1">
@@ -106,7 +122,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* --- MOBILE HEADER (Muncul di HP) --- */}
       <div className="md:hidden fixed top-0 w-full bg-white border-b border-gray-200 z-20 flex items-center justify-between p-4">
-        <span className="font-bold text-blue-600">{appConfig.brandName}</span>
+        <div className="flex items-center gap-2">
+           {appConfig.brandLogo && (
+              <img src={appConfig.brandLogo} alt="Logo" className="h-8 w-auto" />
+           )}
+           <span className="font-bold text-blue-600 text-lg">{appConfig.brandName}</span>
+        </div>
+        
         <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
           <Menu className="text-gray-600" />
         </button>

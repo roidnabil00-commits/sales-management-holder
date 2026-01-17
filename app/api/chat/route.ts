@@ -2,19 +2,23 @@ import { NextResponse } from "next/server";
 import { createClient } from '@supabase/supabase-js';
 
 export async function POST(req: Request) {
+  // 1. API KEY GEMINI (Bisa diset satu untuk semua di Vercel Env)
   const apiKey = process.env.GEMINI_API_KEY;
+  
+  // 2. KONEKSI SUPABASE (Otomatis beda-beda sesuai Env Client)
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
   if (!apiKey || !supabaseUrl || !supabaseKey) {
-    return NextResponse.json({ error: "Config Error: Cek API Key & Supabase Env" }, { status: 500 });
+    return NextResponse.json({ error: "Config Error: Cek Env" }, { status: 500 });
   }
 
   try {
     const { message } = await req.json();
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // 1. AMBIL MATERI
+    // --- BAGIAN 1: AMBIL ILMU SALES (Knowledge Base) ---
+    // Ini ambil dari tabel database klien. Jadi Toko Roti punya ilmu roti, Toko Besi punya ilmu besi.
     const { data: knowledgeData } = await supabase
       .from('ai_knowledge_base')
       .select('topic, content')
@@ -22,48 +26,53 @@ export async function POST(req: Request) {
 
     const dynamicKnowledge = knowledgeData?.map(k => 
       `- ${k.topic}: ${k.content}`
-    ).join("\n") || "Gunakan prinsip umum sales.";
+    ).join("\n") || "Gunakan prinsip umum sales yang ramah dan solutif.";
 
-    // 2. INFO PRODUK
-    const productData = `
-    DAFTAR HARGA:
-    - Roti Buaya: Rp 25.000
-    - Roti Lonjong: Rp 20.000
-    - Pia: Rp 2.000
-    - Dorayaki: Rp 30.000 - 35.000
-    - Roti Tawar: Rp 30.000 - 40.000
-    `;
+    // --- BAGIAN 2: AMBIL INFO PRODUK (DINAMIS - PENTING!) ---
+    // Kita hapus hardcode Roti, ganti dengan fetch database
+    const { data: products } = await supabase
+      .from('products')
+      .select('name, price, unit')
+      .eq('is_active', true)
+      .limit(10); // Ambil 10 produk teratas saja biar prompt gak kepenuhan
 
-    // 3. SYSTEM PROMPT (VERTIKAL MODE)
+    // Format jadi string biar AI ngerti
+    const productListText = products?.map(p => 
+      `- ${p.name}: Rp ${p.price.toLocaleString()} / ${p.unit}`
+    ).join("\n") || "Belum ada data produk.";
+
+    // --- BAGIAN 3: SYSTEM PROMPT ---
     const systemPrompt = `
       # PERAN
-      Kamu adalah Senior Sales Coach.
+      Kamu adalah Senior Sales Coach & Asisten Penjualan.
       Gaya: Profesional ("Pak"), Tegas, tapi Detail.
 
-      # MATERI:
+      # KONTEKS PENGETAHUAN KHUSUS (Knowledge Base):
       ${dynamicKnowledge}
-      ${productData}
+
+      # KATALOG PRODUK SAAT INI (Gunakan untuk referensi harga/stok):
+      ${productListText}
 
       # INSTRUKSI FORMAT (PENTING!):
       User mengeluh jawaban sebelumnya terlalu pendek dan berantakan.
       1. **WAJIB VERTIKAL:** Gunakan ENTER (Baris Baru) untuk memisahkan setiap bagian. JANGAN menulis menyamping.
-      2. **LEBIH BERISI:** Jelaskan setiap poin dengan 2-3 kalimat yang "daging" (berbobot), jangan cuma 1 kalimat pendek.
+      2. **LEBIH BERISI:** Jelaskan setiap poin dengan 2-3 kalimat yang "daging" (berbobot).
       3. **STRUKTUR:** Ikuti template di bawah ini persis.
 
       # TEMPLATE JAWABAN (Ikuti Enter-nya):
       
       Questions : "${message}"
       
-      Answer : [Sapa Pak, validasi pertanyaan dengan ramah, dan berikan pengantar singkat]
+      Answer : [Sapa Pak, validasi pertanyaan, dan berikan pengantar singkat]
       
-      1. [Strategi Pertama]
-      [Penjelasan detail strategi pertama. Berikan contoh cara melakukannya.]
+      1. [Strategi/Jawaban Poin 1]
+      [Penjelasan detail. Jika relevan, sebutkan produk dari katalog di atas.]
       
-      2. [Strategi Kedua]
-      [Penjelasan detail strategi kedua. Hubungkan dengan soft skill jika relevan.]
+      2. [Strategi/Jawaban Poin 2]
+      [Penjelasan detail. Hubungkan dengan teknik closing atau soft skill.]
       
-      3. [Strategi Ketiga]
-      [Penjelasan detail strategi ketiga. Berikan langkah konkret.]
+      3. [Strategi/Jawaban Poin 3]
+      [Penjelasan detail langkah konkret.]
       
       [Kalimat Motivasi Penutup yang Kuat]
 
@@ -78,13 +87,13 @@ export async function POST(req: Request) {
       # JAWABAN COACH:
     `;
 
-    const modelName = "models/gemini-2.5-flash"; 
+    const modelName = "models/gemini-2.0-flash"; // Pakai Flash biar cepat & murah
     const url = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${apiKey}`;
 
     const payload = {
       contents: [{ parts: [{ text: systemPrompt }] }],
       generationConfig: {
-        temperature: 0.6, // Naikkan sedikit agar penjelasan lebih luwes/panjang
+        temperature: 0.7, 
         maxOutputTokens: 2000, 
       }
     };
@@ -98,17 +107,20 @@ export async function POST(req: Request) {
     const data = await response.json();
 
     if (!response.ok) {
-        return NextResponse.json({ error: "Server sibuk." }, { status: 500 });
+        // Cek error dari Google (misal kuota habis)
+        console.error("Gemini Error:", data);
+        return NextResponse.json({ error: "AI sedang istirahat. Coba lagi nanti." }, { status: 500 });
     }
 
-    let reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Maaf, data kosong.";
+    let reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Maaf, saya kehabisan kata-kata.";
     
-    // Pembersihan Markdown
+    // Pembersihan Markdown (Biar rapi di chat bubble)
     reply = reply.replace(/[\*#`]/g, "").trim();
 
     return NextResponse.json({ reply: reply });
 
   } catch (error: any) {
+    console.error("Server Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

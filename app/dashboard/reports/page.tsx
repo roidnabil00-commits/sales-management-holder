@@ -5,7 +5,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { 
   FileText, Filter, Trash2, Calendar, Search, 
-  Download, Eye, X, User, Clock, CheckCircle, Package 
+  Download, Eye, X, User, Clock, CheckCircle, Package,
+  ChevronLeft, ChevronRight 
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -21,6 +22,10 @@ export default function ReportsPage() {
   
   // Search State
   const [searchTerm, setSearchTerm] = useState('')
+
+  // --- STATE PAGINATION ---
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(10) // 10 Data per halaman
 
   // Modal Detail State
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
@@ -79,7 +84,20 @@ export default function ReportsPage() {
     }
 
     setOrders(filteredData)
+    setCurrentPage(1) // Reset ke halaman 1 setiap kali filter berubah
     setLoading(false)
+  }
+
+  // --- LOGIC PAGINATION CLIENT-SIDE ---
+  const indexOfLastItem = currentPage * itemsPerPage
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage
+  const currentOrders = orders.slice(indexOfFirstItem, indexOfLastItem)
+  const totalPages = Math.ceil(orders.length / itemsPerPage)
+
+  const paginate = (pageNumber: number) => {
+    if (pageNumber >= 1 && pageNumber <= totalPages) {
+      setCurrentPage(pageNumber)
+    }
   }
 
   // --- DELETE TRANSACTION ---
@@ -90,7 +108,7 @@ export default function ReportsPage() {
       await supabase.from('order_items').delete().eq('order_id', id)
       await supabase.from('orders').delete().eq('id', id)
       alert('Transaksi berhasil dihapus.')
-      fetchReports()
+      fetchReports() // Refresh data
     } catch (err: any) {
       alert('Gagal hapus: ' + err.message)
     }
@@ -204,6 +222,13 @@ export default function ReportsPage() {
 
       {/* --- TABLE LAPORAN --- */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        
+        {/* INFO HEADER TABEL */}
+        <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+             <h3 className="font-bold text-gray-900 text-sm">Hasil Pencarian</h3>
+             {!loading && <span className="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">{orders.length} Data Ditemukan</span>}
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-100 text-gray-700 font-bold uppercase border-b border-gray-200">
@@ -219,10 +244,10 @@ export default function ReportsPage() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                  <tr><td colSpan={6} className="p-8 text-center text-gray-500">Sedang memuat laporan...</td></tr>
-              ) : orders.length === 0 ? (
+              ) : currentOrders.length === 0 ? (
                  <tr><td colSpan={6} className="p-8 text-center text-gray-500">Tidak ada data ditemukan.</td></tr>
               ) : (
-                orders.map((o) => (
+                currentOrders.map((o) => (
                   <tr key={o.id} className="hover:bg-blue-50 transition group">
                     <td className="px-6 py-4">
                       <div className="font-bold text-blue-700">{o.order_no}</div>
@@ -272,11 +297,11 @@ export default function ReportsPage() {
                 ))
               )}
             </tbody>
-            {/* FOOTER TOTAL */}
+            {/* FOOTER TOTAL (Hanya muncul jika data ada) */}
             {!loading && orders.length > 0 && (
               <tfoot className="bg-gray-50 border-t border-gray-200">
                 <tr>
-                  <td colSpan={4} className="px-6 py-4 text-right font-bold text-gray-600 uppercase">Total Omzet Periode Ini</td>
+                  <td colSpan={4} className="px-6 py-4 text-right font-bold text-gray-600 uppercase">Total Omzet (Semua Halaman)</td>
                   <td className="px-6 py-4 text-right font-bold text-blue-700 text-lg">
                     Rp {orders.reduce((acc, curr) => acc + curr.total_amount, 0).toLocaleString()}
                   </td>
@@ -286,6 +311,56 @@ export default function ReportsPage() {
             )}
           </table>
         </div>
+
+        {/* --- PAGINATION CONTROLS (FOOTER) --- */}
+        {!loading && orders.length > 0 && (
+          <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-center items-center gap-4">
+             <button 
+               onClick={() => paginate(currentPage - 1)}
+               disabled={currentPage === 1}
+               className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50 transition"
+             >
+               <ChevronLeft size={20} />
+             </button>
+             
+             {/* Info Halaman */}
+             <span className="text-sm font-bold text-gray-600">
+                Hal {currentPage} / {totalPages || 1}
+             </span>
+
+             <div className="flex gap-2">
+                {Array.from({ length: totalPages || 1 }, (_, i) => i + 1).map((page) => {
+                   if(page === 1 || page === (totalPages || 1) || (page >= currentPage - 1 && page <= currentPage + 1)) {
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => paginate(page)}
+                          className={`w-8 h-8 rounded-lg font-bold text-sm flex items-center justify-center transition ${
+                             currentPage === page 
+                             ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+                             : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      )
+                   } else if(page === currentPage - 2 || page === currentPage + 2) {
+                      return <span key={page} className="self-end px-1 text-gray-400">...</span>
+                   }
+                   return null
+                })}
+             </div>
+
+             <button 
+               onClick={() => paginate(currentPage + 1)}
+               disabled={currentPage === (totalPages || 1)}
+               className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50 transition"
+             >
+               <ChevronRight size={20} />
+             </button>
+          </div>
+        )}
+
       </div>
 
       {/* --- MODAL DETAIL RIWAYAT & ITEMS --- */}

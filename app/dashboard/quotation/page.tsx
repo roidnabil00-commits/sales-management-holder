@@ -226,6 +226,13 @@ export default function QuotationPage() {
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     doc.text(appConfig.companyAddress, 14, 26)
     doc.text(appConfig.companyContact, 14, 31)
+    if (appConfig.brandLogo) {
+       try {
+         doc.addImage(appConfig.brandLogo, 'PNG', 170, 10, 25, 25);
+       } catch (err) {
+         console.warn('Logo error', err);
+       }
+    }
 
     // INFO
     const suratDate = new Date(order.created_at).toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})

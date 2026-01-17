@@ -1,13 +1,13 @@
-// app/dashboard/orders/page.tsx
+// app/dashboard/delivery/page.tsx
 'use client'
 
 import { appConfig } from '@/lib/appConfig'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { 
-  Plus, Trash2, Save, Printer, RefreshCw, Calendar, Hash, User, 
+  Plus, Trash2, Printer, RefreshCw, Calendar, Hash, User, 
   FileSignature, Search as SearchIcon, X, CheckSquare, Square, 
-  Truck, CreditCard, Clock, CheckCircle, Edit 
+  Truck, CreditCard, Edit, ChevronLeft, ChevronRight 
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -33,23 +33,29 @@ type OrderHistory = {
 type ProductSelection = Product & {
   isSelected: boolean;
   qty: number;
-  customPrice: number; // Harga bisa diedit
+  customPrice: number; 
 }
 
-export default function OrdersPage() {
+export default function DeliveryPage() {
   // State Data Master
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [products, setProducts] = useState<ProductSelection[]>([]) // Produk untuk Checklist
+  const [products, setProducts] = useState<ProductSelection[]>([]) 
   const [orders, setOrders] = useState<OrderHistory[]>([]) 
   const [loading, setLoading] = useState(true)
   
+  // --- STATE PAGINATION ---
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(10) // Tampilkan 10 data per halaman
+  const [totalPages, setTotalPages] = useState(0)
+  const [totalCount, setTotalCount] = useState(0)
+
   // State Form Transaksi
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isEditing, setIsEditing] = useState(false) 
   const [editingId, setEditingId] = useState<number | null>(null)
 
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
-  const [searchProductTerm, setSearchProductTerm] = useState('') // Search Produk
+  const [searchProductTerm, setSearchProductTerm] = useState('') 
   
   // State Input Detail Order
   const [customOrderNo, setCustomOrderNo] = useState('')
@@ -65,31 +71,27 @@ export default function OrdersPage() {
     fetchInitialData()
   }, [])
 
-  // Generate No Order Otomatis
   const generateAutoNo = () => {
     const now = new Date()
     const dateStr = now.toISOString().slice(0,10).replace(/-/g,'')
     const random = Math.floor(Math.random() * 999) + 1
-    return `SO-${dateStr}-${random}`
+    return `DO-${dateStr}-${random}`
   }
 
-  // Reset Form
   const resetForm = () => {
     setCustomOrderNo(generateAutoNo())
     setCustomDate(new Date().toISOString().split('T')[0])
     setTaxRate(0)
-    setMakerName('Admin Sales') 
+    setMakerName('Admin Logistik') 
     setReceiverName('')
     setSelectedCustomerId('')
     setIsEditing(false)
     setEditingId(null)
     
-    // Reset Checklist
     const resetProducts = products.map(p => ({ ...p, isSelected: false, qty: 1, customPrice: p.price }))
     setProducts(resetProducts)
   }
 
-  // --- FUNGSI YANG SEBELUMNYA HILANG ---
   const handleOpenNew = () => {
     resetForm()
     setIsFormOpen(true)
@@ -100,26 +102,25 @@ export default function OrdersPage() {
     const { data: custData } = await supabase.from('customers').select('id, name, address')
     const { data: prodData } = await supabase.from('products').select('*').eq('is_active', true)
     
-    await fetchOrders()
+    await fetchOrders(1) // Load halaman 1
 
     if (custData) setCustomers(custData)
-    
-    // Transform produk untuk checklist
     if (prodData) {
       const prods = prodData.map((p: any) => ({ 
-        ...p, 
-        isSelected: false, 
-        qty: 1, 
-        customPrice: p.price 
+        ...p, isSelected: false, qty: 1, customPrice: p.price 
       }))
       setProducts(prods)
     }
-    
     setLoading(false)
   }
 
-  const fetchOrders = async (query = '') => {
+  // --- FETCH WITH PAGINATION (HYBRID LOGIC) ---
+  const fetchOrders = async (page = 1, query = '') => {
     setLoading(true)
+    
+    const from = (page - 1) * itemsPerPage
+    const to = from + itemsPerPage - 1
+
     let supabaseQuery = supabase
       .from('orders')
       .select(`
@@ -127,29 +128,56 @@ export default function OrdersPage() {
         tax_amount, maker_name, receiver_name, 
         status, payment_status, 
         customer:customers(name)
-      `)
+      `, { count: 'exact' })
       .order('created_at', { ascending: false }) 
-     .order('id', { ascending: false })         
-    .limit(50)
+      .order('id', { ascending: false })         
+    
+    // Jika tidak search, gunakan pagination server (range)
+    if (!query) {
+      supabaseQuery = supabaseQuery.range(from, to)
+    } else {
+      supabaseQuery = supabaseQuery.limit(100) 
+    }
 
-    const { data, error } = await supabaseQuery
+    const { data, count, error } = await supabaseQuery
     
     if (data) {
-      const filtered = (data as any[]).filter(o => 
-        o.order_no.toLowerCase().includes(query.toLowerCase()) || 
-        o.customer?.name.toLowerCase().includes(query.toLowerCase())
-      )
-      setOrders(filtered)
+      let finalData = data as any[]
+      
+      // Filter Search Client-side
+      if (query) {
+        finalData = finalData.filter(o => 
+          o.order_no.toLowerCase().includes(query.toLowerCase()) || 
+          o.customer?.name.toLowerCase().includes(query.toLowerCase())
+        )
+        setTotalPages(1) 
+        setTotalCount(finalData.length)
+      } else {
+        if (count) {
+          setTotalCount(count)
+          setTotalPages(Math.ceil(count / itemsPerPage))
+        }
+      }
+      setOrders(finalData)
     }
     setLoading(false)
   }
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value)
-    fetchOrders(e.target.value)
+    const val = e.target.value
+    setSearchTerm(val)
+    setCurrentPage(1)
+    fetchOrders(1, val)
   }
 
-  // --- LOGIC CHECKLIST PRODUCT ---
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+      fetchOrders(newPage, searchTerm)
+    }
+  }
+
+  // --- LOGIC CHECKLIST ---
   const toggleProductSelection = (id: number) => {
     setProducts(prev => prev.map(p => {
       if (p.id === id) return { ...p, isSelected: !p.isSelected }
@@ -171,21 +199,17 @@ export default function OrdersPage() {
     }))
   }
 
-  // Hitung Barang Terpilih (Cart)
   const selectedItems = products.filter(p => p.isSelected)
-  
-  // Filter Tampilan Produk di Modal (Search)
   const filteredProducts = products.filter(p => 
     p.name.toLowerCase().includes(searchProductTerm.toLowerCase()) || 
     (p.barcode && p.barcode.includes(searchProductTerm))
   )
 
-  // Kalkulasi Total
   const subTotal = selectedItems.reduce((total, item) => total + (item.customPrice * item.qty), 0)
   const taxAmount = (subTotal * taxRate) / 100 
   const grandTotal = subTotal + taxAmount
 
-  // --- LOGIC EDIT ORDER (LOAD DATA KE CHECKLIST) ---
+  // --- LOGIC EDIT ---
   const handleEditOrder = async (orderId: number) => {
     try {
       setLoading(true)
@@ -208,24 +232,17 @@ export default function OrdersPage() {
         : 0
       setTaxRate(rate)
 
-      // Mapping items ke Checklist State
       const orderItemMap = new Map(order.items.map((i: any) => [i.product_id, i]))
       
       const newProductsState = products.map(p => {
         const existingItem: any = orderItemMap.get(p.id)
         if (existingItem) {
-          return { 
-            ...p, 
-            isSelected: true, 
-            qty: existingItem.qty, 
-            customPrice: existingItem.price 
-          }
+          return { ...p, isSelected: true, qty: existingItem.qty, customPrice: existingItem.price }
         }
         return { ...p, isSelected: false, qty: 1, customPrice: p.price }
       })
       
       setProducts(newProductsState)
-
       setIsEditing(true)
       setEditingId(orderId)
       setIsFormOpen(true)
@@ -237,7 +254,7 @@ export default function OrdersPage() {
     }
   }
 
-  // --- LOGIC SIMPAN ORDER & DIRECT PRINT ---
+  // --- SAVE ORDER (STATUS SHIPPED) ---
   const handleSaveOrder = async () => {
     if (!selectedCustomerId || selectedItems.length === 0 || !customOrderNo) {
       alert('Mohon lengkapi Data Pelanggan, Nomor Pesanan, dan minimal 1 Barang!')
@@ -249,38 +266,33 @@ export default function OrdersPage() {
       if (!user) throw new Error('Sesi habis, login ulang.')
 
       const orderPayload = {
-  customer_id: parseInt(selectedCustomerId),
-  sales_id: user.id,
-  doc_type: 'sales_order',
-  status: 'shipped', 
-  payment_status: isEditing ? undefined : 'unpaid', 
-  total_amount: grandTotal, 
-  tax_amount: taxAmount,    
-  order_no: customOrderNo,  
-  created_at: new Date(customDate).toISOString(), 
-  maker_name: makerName,
-  receiver_name: receiverName
-}
+        customer_id: parseInt(selectedCustomerId),
+        sales_id: user.id,
+        doc_type: 'delivery_order',
+        status: 'shipped', // Default DO status = Shipped
+        payment_status: isEditing ? undefined : 'unpaid', 
+        total_amount: grandTotal, 
+        tax_amount: taxAmount,    
+        order_no: customOrderNo,  
+        created_at: new Date(customDate).toISOString(), 
+        maker_name: makerName,
+        receiver_name: receiverName
+      }
 
       let savedOrderId = editingId
 
       if (isEditing && editingId) {
-        // --- MODE UPDATE ---
         const updatePayload = JSON.parse(JSON.stringify(orderPayload));
         const { error: updateError } = await supabase.from('orders').update(updatePayload).eq('id', editingId)
         if (updateError) throw updateError
-
         const { error: deleteItemError } = await supabase.from('order_items').delete().eq('order_id', editingId)
         if (deleteItemError) throw deleteItemError
-
       } else {
-        // --- MODE INSERT ---
         const { data: newOrder, error: insertError } = await supabase.from('orders').insert([orderPayload]).select().single()
         if (insertError) throw insertError
         savedOrderId = newOrder.id
       }
 
-      // Simpan Item
       const orderItemsData = selectedItems.map(item => ({
         order_id: savedOrderId,
         product_id: item.id,
@@ -291,9 +303,8 @@ export default function OrdersPage() {
       const { error: itemsError } = await supabase.from('order_items').insert(orderItemsData)
       if (itemsError) throw itemsError
 
-      // --- INTEGRASI DIRECT PRINT ---
       setIsFormOpen(false)
-      fetchOrders() 
+      fetchOrders(currentPage) // Refresh
       if(savedOrderId) await generatePDF(savedOrderId)
 
     } catch (error: any) {
@@ -308,13 +319,13 @@ export default function OrdersPage() {
       const { error } = await supabase.from('orders').delete().eq('id', id)
       if(error) throw error
       alert('Data berhasil dihapus.')
-      fetchOrders()
+      fetchOrders(currentPage)
     } catch (err: any) {
       alert('Gagal hapus: ' + err.message)
     }
   }
 
-  // --- GENERATE PDF (A4 & TANDA TANGAN LENGKAP) ---
+  // --- GENERATE PDF (SURAT JALAN) ---
   const generatePDF = async (orderId: number) => {
     try {
       const { data: order, error } = await supabase
@@ -327,22 +338,18 @@ export default function OrdersPage() {
 
       const doc = new jsPDF({ format: 'a4', unit: 'mm' })
       
-      // KOP SURAT JALAN DINAMIS
+      // KOP SURAT
       doc.setFontSize(18); doc.setFont('helvetica', 'bold');
       doc.text(appConfig.companyName + ' - DELIVERY', 14, 20) 
       doc.setFontSize(10); doc.setFont('helvetica', 'normal');
       doc.text(appConfig.companyAddress, 14, 26)
-    doc.text(appConfig.companyContact, 14, 31)
+      doc.text(appConfig.companyContact, 14, 31)
 
-      // -- JUDUL --
+      // JUDUL
       doc.setFontSize(16); doc.setFont('helvetica', 'bold');
       doc.text('DELIVERY ORDER/ SURAT JALAN', 105, 48, { align: 'center' })
       
-      // -- INFO ORDER --
-      const leftX = 15;
-      const rightX = 120; 
-      const infoY = 58;
-
+      const leftX = 15; const rightX = 120; const infoY = 58;
       doc.setFontSize(10); doc.setFont('helvetica', 'bold');
       doc.text('Kepada Yth:', leftX, infoY)
       doc.setFont('helvetica', 'normal');
@@ -360,7 +367,6 @@ export default function OrdersPage() {
       doc.setFont('helvetica', 'normal');
       doc.text(new Date(order.created_at).toLocaleDateString('id-ID', { dateStyle: 'long' }), rightX + 30, infoY + 6)
 
-      // -- TABEL --
       const tableRows = order.items.map((item: any) => [
         item.product.barcode || '-',
         item.product.name,
@@ -377,11 +383,8 @@ export default function OrdersPage() {
         headStyles: { fillColor: [40, 40, 40], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
         styles: { fontSize: 10, cellPadding: 4, valign: 'middle' },
         columnStyles: { 
-          0: { cellWidth: 35 }, 
-          1: { cellWidth: 'auto' }, 
-          2: { cellWidth: 25, halign: 'center' },
-          3: { cellWidth: 35, halign: 'right' },
-          4: { cellWidth: 35, halign: 'right' }
+          0: { cellWidth: 35 }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 25, halign: 'center' },
+          3: { cellWidth: 35, halign: 'right' }, 4: { cellWidth: 35, halign: 'right' }
         },
         margin: { left: 15, right: 15 }
       })
@@ -391,10 +394,7 @@ export default function OrdersPage() {
       const subTotal = order.total_amount - tax
       const grandTotal = order.total_amount
 
-      // -- TOTAL --
-      const summaryXLabel = 140;
-      const summaryXValue = 195;
-      
+      const summaryXLabel = 140; const summaryXValue = 195;
       doc.setFont('helvetica', 'normal')
       doc.text('Sub Total:', summaryXLabel, finalY + 6);      
       doc.text(`Rp ${subTotal.toLocaleString()}`, summaryXValue, finalY + 6, { align: 'right' })
@@ -404,23 +404,18 @@ export default function OrdersPage() {
       doc.text('TOTAL:', summaryXLabel, finalY + 20);    
       doc.text(`Rp ${grandTotal.toLocaleString()}`, summaryXValue, finalY + 20, { align: 'right' })
 
-      // -- TANDA TANGAN (FIXED) --
       const signY = finalY + 45 
       doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-      
       doc.text('Dibuat Oleh,', 35, signY, { align: 'center' })
       doc.text(`( ${order.maker_name || 'Admin'} )`, 35, signY + 25, { align: 'center' })
-      doc.setLineWidth(0.2);
-      doc.line(15, signY + 26, 55, signY + 26) // Garis
-
+      doc.setLineWidth(0.2); doc.line(15, signY + 26, 55, signY + 26)
       doc.text('Diterima Oleh,', 175, signY, { align: 'center' })
       doc.text(`( ${order.receiver_name || 'Pelanggan'} )`, 175, signY + 25, { align: 'center' })
-      doc.line(155, signY + 26, 195, signY + 26) // Garis
+      doc.line(155, signY + 26, 195, signY + 26)
 
       doc.autoPrint();
       const blob = doc.output('blob');
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
+      window.open(URL.createObjectURL(blob), '_blank');
 
     } catch (err: any) {
       alert('Gagal cetak PDF: ' + err.message)
@@ -432,7 +427,7 @@ export default function OrdersPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Pengiriman Pesanan (DO)</h2>
-          <p className="text-sm text-gray-700 font-medium">Buat pesanan & cetak faktur resmi</p>
+          <p className="text-sm text-gray-700 font-medium">Buat pesanan & cetak surat jalan</p>
         </div>
         <button 
           onClick={handleOpenNew}
@@ -447,6 +442,7 @@ export default function OrdersPage() {
         <div className="p-4 border-b border-gray-200 bg-gray-50 flex flex-col md:flex-row justify-between items-center gap-4">
           <h3 className="font-bold text-gray-900 flex items-center gap-2">
             Riwayat Transaksi
+            {!loading && <span className="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">{totalCount} Data</span>}
             {loading && <RefreshCw size={14} className="animate-spin text-gray-500"/>}
           </h3>
           <div className="relative w-full md:w-64">
@@ -518,6 +514,51 @@ export default function OrdersPage() {
             ))
           )}
         </div>
+
+        {/* --- PAGINATION CONTROLS (FOOTER) --- */}
+        {!searchTerm && totalPages > 1 && (
+          <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-center items-center gap-4">
+             <button 
+               onClick={() => handlePageChange(currentPage - 1)}
+               disabled={currentPage === 1}
+               className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50 transition"
+             >
+               <ChevronLeft size={20} />
+             </button>
+             
+             <div className="flex gap-2">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                   if(page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)) {
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => handlePageChange(page)}
+                          className={`w-8 h-8 rounded-lg font-bold text-sm flex items-center justify-center transition ${
+                             currentPage === page 
+                             ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+                             : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      )
+                   } else if(page === currentPage - 2 || page === currentPage + 2) {
+                      return <span key={page} className="self-end px-1 text-gray-400">...</span>
+                   }
+                   return null
+                })}
+             </div>
+
+             <button 
+               onClick={() => handlePageChange(currentPage + 1)}
+               disabled={currentPage === totalPages}
+               className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50 transition"
+             >
+               <ChevronRight size={20} />
+             </button>
+          </div>
+        )}
+        
       </div>
 
       {/* --- FORM MODAL (CHECKLIST STYLE) --- */}
@@ -533,7 +574,6 @@ export default function OrdersPage() {
 
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               
-              {/* Header Info */}
               <div className="bg-blue-50 p-5 rounded-xl border border-blue-100 grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
                    <label className="text-xs font-bold text-blue-800 uppercase mb-1 flex items-center gap-1"><Hash size={14}/> No. Pesanan</label>
@@ -584,7 +624,6 @@ export default function OrdersPage() {
                         <p className="text-xs text-gray-500 font-mono">{product.barcode || '-'}</p>
                       </div>
                       
-                      {/* Input Qty & Price (Hanya Muncul Jika Dipilih) */}
                       {product.isSelected && (
                         <div className="flex items-center gap-2">
                           <div className="flex flex-col items-end">

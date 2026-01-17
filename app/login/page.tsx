@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/navigation'
+import { appConfig } from '@/lib/appConfig'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -35,10 +36,13 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
       <div className="w-full max-w-sm rounded-xl bg-white p-8 shadow-lg border border-gray-100">
-        <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-gray-900">Xander Sales</h1>
-          <p className="text-sm text-gray-500">Masuk untuk mulai jualan</p>
-        </div>
+        <div className="flex justify-center mb-4">
+  {appConfig.brandLogo ? (
+    <img src={appConfig.brandLogo} alt="Logo" className="h-16 w-auto" />
+  ) : (
+    <h1 className="text-2xl font-bold text-blue-600">{appConfig.brandName}</h1>
+  )}
+</div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
