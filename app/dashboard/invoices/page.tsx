@@ -17,8 +17,8 @@ import {
   RefreshCw,
   Truck,
   CreditCard,
-  ChevronLeft,  // [NEW]
-  ChevronRight  // [NEW]
+  ChevronLeft,
+  ChevronRight 
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -34,22 +34,20 @@ type Order = {
   total_amount: number
   tax_amount: number
   discount_amount: number
-  status: string // Status Logistik (pending, shipped, completed)
-  payment_status: string // Status Bayar (paid, unpaid)
+  status: string 
+  payment_status: string 
   maker_name: string
   approved_name: string
   receiver_name: string
   items?: any[]
 }
 
-// Tipe Checklist Produk
 type ProductSelection = Product & {
   isSelected: boolean;
   qty: number;
   customPrice: number;
 }
 
-// --- HELPER TERBILANG ---
 const terbilang = (nilai: number): string => {
   const angka = Math.abs(nilai)
   const baca = ['', 'Satu', 'Dua', 'Tiga', 'Empat', 'Lima', 'Enam', 'Tujuh', 'Delapan', 'Sembilan', 'Sepuluh', 'Sebelas']
@@ -71,27 +69,22 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   
-  // --- STATE PAGINATION ---
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(10) 
   const [totalPages, setTotalPages] = useState(0)
   const [totalCount, setTotalCount] = useState(0)
 
-  // State Form
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   
-  // Input Form States
   const [invNo, setInvNo] = useState('')
   const [invDate, setInvDate] = useState('')
   const [paymentStatus, setPaymentStatus] = useState('unpaid')
   
-  // Helper States
   const [searchProductTerm, setSearchProductTerm] = useState('')
   const [discountRate, setDiscountRate] = useState(0) 
   const [taxRate, setTaxRate] = useState(0) 
   
-  // Signatures
   const [makerName, setMakerName] = useState('')
   const [approvedName, setApprovedName] = useState('Manager Keuangan')
   const [receiverName, setReceiverName] = useState('')
@@ -104,7 +97,6 @@ export default function InvoicesPage() {
     setLoading(true)
     const { data: prodData } = await supabase.from('products').select('*').eq('is_active', true)
     
-    // Siapkan checklist produk
     if (prodData) {
       const prods = prodData.map((p: any) => ({ 
         ...p, isSelected: false, qty: 1, customPrice: p.price 
@@ -112,26 +104,23 @@ export default function InvoicesPage() {
       setProducts(prods)
     }
 
-    await fetchInvoices(1) // Load halaman 1
+    await fetchInvoices(1) 
     setLoading(false)
   }
 
-  // --- FETCH & SEARCH (HYBRID PAGINATION) ---
   const fetchInvoices = async (page = 1, query = '') => {
     setLoading(true)
     
-    // Hitung range
     const from = (page - 1) * itemsPerPage
     const to = from + itemsPerPage - 1
 
     let supabaseQuery = supabase
       .from('orders')
       .select(`*, customer:customers(name, address, phone), items:order_items(product_id, qty, price, product:products(name, unit, barcode))`, { count: 'exact' })
-      .in('status', ['shipped', 'completed']) // Filter Invoice: Hanya yg dikirim/selesai
+      .in('status', ['shipped', 'completed']) 
       .order('created_at', { ascending: false }) 
       .order('id', { ascending: false })         
     
-    // Hybrid Logic
     if (!query) {
       supabaseQuery = supabaseQuery.range(from, to)
     } else {
@@ -145,7 +134,6 @@ export default function InvoicesPage() {
     } else {
       let filtered = data as any[]
       
-      // Client-side filter untuk search
       if(query) {
         filtered = filtered.filter(inv => 
           inv.order_no.toLowerCase().includes(query.toLowerCase()) || 
@@ -178,7 +166,6 @@ export default function InvoicesPage() {
     }
   }
 
-  // --- CHECKLIST LOGIC ---
   const toggleProductSelection = (id: number) => {
     setProducts(prev => prev.map(p => p.id === id ? { ...p, isSelected: !p.isSelected } : p))
   }
@@ -191,7 +178,6 @@ export default function InvoicesPage() {
     setProducts(prev => prev.map(p => p.id === id ? { ...p, customPrice: val >= 0 ? val : 0 } : p))
   }
 
-  // Filter & Kalkulasi
   const filteredProducts = products.filter(p => 
     p.name.toLowerCase().includes(searchProductTerm.toLowerCase()) || 
     (p.barcode && p.barcode.includes(searchProductTerm))
@@ -203,7 +189,6 @@ export default function InvoicesPage() {
   const taxVal = ((subTotal - discountVal) * taxRate) / 100
   const grandTotal = subTotal - discountVal + taxVal
 
-  // --- BUKA FORM EDIT ---
   const handleEditClick = (order: Order) => {
     setSelectedOrder(order)
     setInvNo(order.order_no)
@@ -213,7 +198,6 @@ export default function InvoicesPage() {
     setApprovedName(order.approved_name || 'Manager Keuangan')
     setReceiverName(order.receiver_name || order.customer.name)
 
-    // Reverse Calc untuk Persentase Diskon & Pajak
     const currentSubTotal = order.items?.reduce((acc, i) => acc + (i.price * i.qty), 0) || 0
     let dRate = 0
     if (currentSubTotal > 0 && order.discount_amount) {
@@ -228,7 +212,6 @@ export default function InvoicesPage() {
     }
     setTaxRate(tRate)
 
-    // Map Items ke Checklist
     const orderItemMap = new Map(order.items?.map((i: any) => [i.product_id, i]))
     const newProductsState = products.map(p => {
       const existing: any = orderItemMap.get(p.id)
@@ -241,12 +224,10 @@ export default function InvoicesPage() {
     setIsFormOpen(true)
   }
 
-  // --- SIMPAN & CETAK ---
   const handleSaveAndPrint = async () => {
     if (!selectedOrder) return
 
     try {
-      // 1. Update Database
       const { error } = await supabase
         .from('orders')
         .update({
@@ -255,7 +236,7 @@ export default function InvoicesPage() {
           discount_amount: discountVal,
           tax_amount: taxVal,
           total_amount: grandTotal,
-          payment_status: paymentStatus, // Simpan status sesuai pilihan user
+          payment_status: paymentStatus, 
           maker_name: makerName,
           approved_name: approvedName,
           receiver_name: receiverName
@@ -264,7 +245,6 @@ export default function InvoicesPage() {
 
       if (error) throw error
 
-      // 2. Update Items (Hapus lama, insert baru dari checklist)
       await supabase.from('order_items').delete().eq('order_id', selectedOrder.id)
       
       const newItems = selectedItems.map(item => ({
@@ -275,7 +255,6 @@ export default function InvoicesPage() {
       }))
       await supabase.from('order_items').insert(newItems)
 
-      // 3. Generate PDF Langsung
       const updatedOrder = {
         ...selectedOrder,
         order_no: invNo,
@@ -283,7 +262,7 @@ export default function InvoicesPage() {
         discount_amount: discountVal,
         tax_amount: taxVal,
         total_amount: grandTotal,
-        payment_status: paymentStatus, // Gunakan status terbaru
+        payment_status: paymentStatus, 
         maker_name: makerName,
         approved_name: approvedName,
         receiver_name: receiverName,
@@ -297,29 +276,34 @@ export default function InvoicesPage() {
       await generateInvoicePDF(updatedOrder)
 
       setIsFormOpen(false)
-      fetchInvoices(currentPage) // Refresh list di halaman yg sama
+      fetchInvoices(currentPage) 
 
     } catch (err: any) {
       alert('Gagal proses: ' + err.message)
     }
   }
 
-  // --- GENERATE PDF (FORMAT A4) ---
   const generateInvoicePDF = async (order: any) => {
     const doc = new jsPDF({ format: 'a4', unit: 'mm' })
     
-    // HEADER KOP SURAT DINAMIS
+    // --- LOGO FIX ---
+    if (appConfig.brandLogo) {
+      try {
+        doc.addImage(appConfig.brandLogo, 'PNG', 170, 10, 25, 25);
+      } catch (err) {
+        console.warn('Logo error', err);
+      }
+    }
+
     doc.setFontSize(22); doc.setFont('helvetica', 'bold');
     doc.text(appConfig.companyName.toUpperCase(), 105, 20, { align: 'center' })
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     doc.text(appConfig.companyTagline, 105, 26, { align: 'center' })
     doc.text(appConfig.companyContact, 105, 31, { align: 'center' })
     
-    // JUDUL
     doc.setFontSize(16); doc.setFont('helvetica', 'bold');
     doc.text('INVOICE / FAKTUR', 105, 48, { align: 'center' })
     
-    // STATUS STAMP LUNAS/TAGIHAN
     if(order.payment_status === 'paid') {
       doc.setTextColor(0, 150, 0); doc.setFontSize(14);
       doc.text('[ LUNAS ]', 195, 48, { align: 'right' });
@@ -330,7 +314,6 @@ export default function InvoicesPage() {
       doc.setTextColor(0, 0, 0);
     }
 
-    // INFO
     const leftX = 15, rightX = 130, infoY = 60
     doc.setFontSize(10); doc.setFont('helvetica', 'bold');
     doc.text('Ditagihkan Kepada:', leftX, infoY)
@@ -343,7 +326,6 @@ export default function InvoicesPage() {
     doc.setFont('helvetica', 'bold');
     doc.text('Tanggal:', rightX, infoY + 6); doc.setFont('helvetica', 'normal'); doc.text(new Date(order.created_at).toLocaleDateString('id-ID'), rightX + 25, infoY + 6)
 
-    // TABEL
     const tableRows = order.items.map((item: any) => [
       item.product.barcode || '-', item.product.name, `${item.qty} ${item.product.unit}`,
       `Rp ${item.price.toLocaleString()}`, `Rp ${(item.qty * item.price).toLocaleString()}`
@@ -361,7 +343,6 @@ export default function InvoicesPage() {
 
     const finalY = (doc as any).lastAutoTable.finalY + 5
 
-    // SUMMARY
     const labelX = 135, valX = 195, step = 6
     doc.setFont('helvetica', 'normal')
     const sub = order.items.reduce((a:number, b:any) => a + (b.price * b.qty), 0)
@@ -375,11 +356,9 @@ export default function InvoicesPage() {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
     doc.text('TOTAL:', labelX, finalY + (step*5)); doc.text(`Rp ${grand.toLocaleString()}`, valX, finalY + (step*5), { align: 'right' })
 
-    // TERBILANG
     doc.setFontSize(10); doc.setFont('helvetica', 'italic');
     doc.text(`Terbilang: ${terbilang(grand)} Rupiah`, 15, finalY + (step*5))
 
-    // SIGNATURES
     const signY = finalY + 50
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     doc.text('Disiapkan Oleh,', 30, signY, {align:'center'}); doc.text(`( ${order.maker_name || 'Admin'} )`, 30, signY + 25, {align:'center'}); doc.line(10, signY + 26, 50, signY + 26)
@@ -408,7 +387,6 @@ export default function InvoicesPage() {
         <button onClick={() => fetchInvoices(currentPage)} className="text-blue-700 hover:text-blue-900"><RefreshCw size={24}/></button>
       </div>
 
-      {/* SEARCH BAR */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex items-center gap-2">
         <SearchIcon className="text-gray-900" size={20} />
         <input 
@@ -419,10 +397,8 @@ export default function InvoicesPage() {
         />
       </div>
 
-      {/* TABEL LIST */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         
-        {/* INFO TOTAL DATA */}
         <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
              <h3 className="font-bold text-gray-900 text-sm">Daftar Invoice</h3>
              {!loading && <span className="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">{totalCount} Data</span>}
@@ -453,7 +429,6 @@ export default function InvoicesPage() {
                   </td>
                   <td className="px-6 py-4 font-bold text-gray-900 text-base">{inv.customer?.name}</td>
                   
-                  {/* Status Logistik */}
                   <td className="px-6 py-4">
                     {inv.status === 'completed' ? (
                       <span className="flex items-center gap-1 text-green-800 bg-green-200 px-2 py-1 rounded text-xs font-bold w-fit"><CheckCircle size={12}/> Selesai</span>
@@ -464,7 +439,6 @@ export default function InvoicesPage() {
                     )}
                   </td>
 
-                  {/* Status Keuangan */}
                   <td className="px-6 py-4">
                     {inv.payment_status === 'paid' ? (
                       <span className="flex items-center gap-1 text-emerald-800 bg-emerald-200 px-2 py-1 rounded text-xs font-bold w-fit"><CreditCard size={12}/> LUNAS</span>
@@ -489,7 +463,6 @@ export default function InvoicesPage() {
           </tbody>
         </table>
 
-        {/* --- PAGINATION CONTROLS (FOOTER) --- */}
         {!searchTerm && (
           <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-center items-center gap-4">
              <button 
@@ -500,7 +473,6 @@ export default function InvoicesPage() {
                <ChevronLeft size={20} />
              </button>
              
-             {/* Info Halaman */}
              <span className="text-sm font-bold text-gray-600">
                 Hal {currentPage} / {totalPages || 1}
              </span>
@@ -540,7 +512,6 @@ export default function InvoicesPage() {
 
       </div>
 
-      {/* --- FORM MODAL --- */}
       {isFormOpen && selectedOrder && (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-2 md:p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl w-full max-w-4xl h-[95vh] flex flex-col shadow-2xl overflow-hidden border border-gray-300">
@@ -564,7 +535,6 @@ export default function InvoicesPage() {
                 </div>
               </div>
 
-              {/* RADIO BUTTON STATUS PEMBAYARAN */}
               <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200">
                 <label className="text-sm font-black text-yellow-900 uppercase mb-3 block">Status Pembayaran</label>
                 <div className="flex gap-6">
@@ -585,7 +555,6 @@ export default function InvoicesPage() {
                 </div>
               </div>
 
-              {/* CHECKLIST PRODUK */}
               <div className="bg-gray-50 p-5 rounded-xl border border-gray-300 shadow-sm">
                 <div className="flex justify-between items-center mb-4">
                   <h4 className="font-black text-gray-900 flex items-center gap-2 text-lg"><CheckSquare size={20}/> Rincian Barang</h4>
@@ -626,7 +595,6 @@ export default function InvoicesPage() {
                   ))}
                 </div>
 
-                {/* Footer Kalkulasi */}
                 <div className="mt-4 pt-4 border-t border-gray-300 grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
                   <div className="flex gap-4">
                     <div>
@@ -649,7 +617,6 @@ export default function InvoicesPage() {
                 </div>
               </div>
 
-              {/* Tanda Tangan */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                  <div><label className="text-xs text-gray-800 font-bold block mb-1">Disiapkan Oleh</label><input type="text" className="w-full border border-gray-300 rounded p-2 text-sm font-bold text-gray-900" value={makerName} onChange={(e) => setMakerName(e.target.value)} /></div>
                  <div><label className="text-xs text-gray-800 font-bold block mb-1">Disetujui Oleh</label><input type="text" className="w-full border border-gray-300 rounded p-2 text-sm font-bold text-gray-900" value={approvedName} onChange={(e) => setApprovedName(e.target.value)} /></div>

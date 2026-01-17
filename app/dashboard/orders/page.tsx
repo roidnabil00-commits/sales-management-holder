@@ -5,10 +5,9 @@ import { appConfig } from '@/lib/appConfig'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { 
-  Plus, Trash2, Save, Printer, RefreshCw, Calendar, Hash, User, 
+  Plus, Trash2, Printer, RefreshCw, Calendar, Hash, User, 
   FileSignature, Search as SearchIcon, X, CheckSquare, Square, 
-  Truck, CreditCard, Clock, CheckCircle, Edit, 
-  ChevronLeft, ChevronRight 
+  Truck, CreditCard, Edit, ChevronLeft, ChevronRight 
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -40,7 +39,7 @@ type ProductSelection = Product & {
 export default function OrdersPage() {
   // State Data Master
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [products, setProducts] = useState<ProductSelection[]>([]) // Produk untuk Checklist
+  const [products, setProducts] = useState<ProductSelection[]>([]) 
   const [orders, setOrders] = useState<OrderHistory[]>([]) 
   const [loading, setLoading] = useState(true)
   
@@ -145,9 +144,6 @@ export default function OrdersPage() {
       .order('created_at', { ascending: false }) 
       .order('id', { ascending: false })         
 
-    // LOGIKA HYBRID:
-    // Jika tidak ada search -> Pakai Pagination Database (.range)
-    // Jika ada search -> Ambil banyak (.limit 100) lalu filter di client
     if (!query) {
       supabaseQuery = supabaseQuery.range(from, to)
     } else {
@@ -159,17 +155,14 @@ export default function OrdersPage() {
     if (data) {
       let finalData = data as any[]
       
-      // Filter Search Client-side
       if (query) {
         finalData = finalData.filter(o => 
           o.order_no.toLowerCase().includes(query.toLowerCase()) || 
           o.customer?.name.toLowerCase().includes(query.toLowerCase())
         )
-        // Saat search, pagination dimatikan sementara (tampil semua hasil search)
         setTotalPages(1) 
         setTotalCount(finalData.length)
       } else {
-        // Mode Normal (Pagination Aktif)
         if (count) {
           setTotalCount(count)
           setTotalPages(Math.ceil(count / itemsPerPage))
@@ -216,21 +209,19 @@ export default function OrdersPage() {
     }))
   }
 
-  // Hitung Barang Terpilih (Cart)
+  // Hitung Barang Terpilih
   const selectedItems = products.filter(p => p.isSelected)
   
-  // Filter Tampilan Produk di Modal (Search)
   const filteredProducts = products.filter(p => 
     p.name.toLowerCase().includes(searchProductTerm.toLowerCase()) || 
     (p.barcode && p.barcode.includes(searchProductTerm))
   )
 
-  // Kalkulasi Total
   const subTotal = selectedItems.reduce((total, item) => total + (item.customPrice * item.qty), 0)
   const taxAmount = (subTotal * taxRate) / 100 
   const grandTotal = subTotal + taxAmount
 
-  // --- LOGIC EDIT ORDER (LOAD DATA KE CHECKLIST) ---
+  // --- LOGIC EDIT ORDER ---
   const handleEditOrder = async (orderId: number) => {
     try {
       setLoading(true)
@@ -253,7 +244,6 @@ export default function OrdersPage() {
         : 0
       setTaxRate(rate)
 
-      // Mapping items ke Checklist State
       const orderItemMap = new Map(order.items.map((i: any) => [i.product_id, i]))
       
       const newProductsState = products.map(p => {
@@ -310,7 +300,6 @@ export default function OrdersPage() {
       let savedOrderId = editingId
 
       if (isEditing && editingId) {
-        // --- MODE UPDATE ---
         const updatePayload = JSON.parse(JSON.stringify(orderPayload));
         const { error: updateError } = await supabase.from('orders').update(updatePayload).eq('id', editingId)
         if (updateError) throw updateError
@@ -319,13 +308,11 @@ export default function OrdersPage() {
         if (deleteItemError) throw deleteItemError
 
       } else {
-        // --- MODE INSERT ---
         const { data: newOrder, error: insertError } = await supabase.from('orders').insert([orderPayload]).select().single()
         if (insertError) throw insertError
         savedOrderId = newOrder.id
       }
 
-      // Simpan Item
       const orderItemsData = selectedItems.map(item => ({
         order_id: savedOrderId,
         product_id: item.id,
@@ -336,9 +323,8 @@ export default function OrdersPage() {
       const { error: itemsError } = await supabase.from('order_items').insert(orderItemsData)
       if (itemsError) throw itemsError
 
-      // --- INTEGRASI DIRECT PRINT ---
       setIsFormOpen(false)
-      fetchOrders(currentPage) // Refresh halaman saat ini
+      fetchOrders(currentPage) 
       if(savedOrderId) await generatePDF(savedOrderId)
 
     } catch (error: any) {
@@ -353,13 +339,13 @@ export default function OrdersPage() {
       const { error } = await supabase.from('orders').delete().eq('id', id)
       if(error) throw error
       alert('Data berhasil dihapus.')
-      fetchOrders(currentPage) // Refresh halaman saat ini
+      fetchOrders(currentPage) 
     } catch (err: any) {
       alert('Gagal hapus: ' + err.message)
     }
   }
 
-  // --- GENERATE PDF (A4 & TANDA TANGAN LENGKAP) ---
+  // --- GENERATE PDF (A4 & LOGO & SIGNATURE) ---
   const generatePDF = async (orderId: number) => {
     try {
       const { data: order, error } = await supabase
@@ -372,18 +358,28 @@ export default function OrdersPage() {
 
       const doc = new jsPDF({ format: 'a4', unit: 'mm' })
       
-      // KOP SURAT PESANAN DINAMIS
+      // --- LOGO FIX (Menggunakan Config) ---
+      if (appConfig.brandLogo) {
+        try {
+          // Posisi Logo: Pojok Kanan Atas
+          doc.addImage(appConfig.brandLogo, 'PNG', 170, 10, 25, 25);
+        } catch (err) {
+          console.warn('Logo error', err);
+        }
+      }
+
+      // KOP SURAT
       doc.setFontSize(18); doc.setFont('helvetica', 'bold');
       doc.text(appConfig.companyName, 14, 20) 
       doc.setFontSize(10); doc.setFont('helvetica', 'normal');
       doc.text(appConfig.companyAddress, 14, 26)
       doc.text(appConfig.companyContact, 14, 31)
 
-      // -- JUDUL --
+      // JUDUL
       doc.setFontSize(16); doc.setFont('helvetica', 'bold');
       doc.text('SALES ORDER', 105, 48, { align: 'center' })
       
-      // -- INFO ORDER --
+      // INFO
       const leftX = 15;
       const rightX = 120; 
       const infoY = 58;
@@ -405,7 +401,7 @@ export default function OrdersPage() {
       doc.setFont('helvetica', 'normal');
       doc.text(new Date(order.created_at).toLocaleDateString('id-ID', { dateStyle: 'long' }), rightX + 30, infoY + 6)
 
-      // -- TABEL --
+      // TABEL
       const tableRows = order.items.map((item: any) => [
         item.product.barcode || '-',
         item.product.name,
@@ -436,7 +432,7 @@ export default function OrdersPage() {
       const subTotal = order.total_amount - tax
       const grandTotal = order.total_amount
 
-      // -- TOTAL --
+      // TOTAL
       const summaryXLabel = 140;
       const summaryXValue = 195;
       
@@ -450,18 +446,18 @@ export default function OrdersPage() {
       doc.text('TOTAL:', summaryXLabel, finalY + 20);    
       doc.text(`Rp ${grandTotal.toLocaleString()}`, summaryXValue, finalY + 20, { align: 'right' })
 
-      // -- TANDA TANGAN (FIXED) --
+      // TANDA TANGAN
       const signY = finalY + 45 
       doc.setFontSize(10); doc.setFont('helvetica', 'normal');
       
       doc.text('Dibuat Oleh,', 35, signY, { align: 'center' })
       doc.text(`( ${order.maker_name || 'Admin'} )`, 35, signY + 25, { align: 'center' })
       doc.setLineWidth(0.2);
-      doc.line(15, signY + 26, 55, signY + 26) // Garis
+      doc.line(15, signY + 26, 55, signY + 26) 
 
       doc.text('Diterima Oleh,', 175, signY, { align: 'center' })
       doc.text(`( ${order.receiver_name || 'Pelanggan'} )`, 175, signY + 25, { align: 'center' })
-      doc.line(155, signY + 26, 195, signY + 26) // Garis
+      doc.line(155, signY + 26, 195, signY + 26) 
 
       doc.autoPrint();
       const blob = doc.output('blob');
@@ -525,7 +521,6 @@ export default function OrdersPage() {
                     <span>{order.customer?.name}</span>
                   </div>
 
-                  {/* STATUS BADGES */}
                   <div className="flex gap-2 mt-2">
                     <span className={`text-xs px-2 py-1 rounded-md font-bold flex items-center gap-1 ${
                       order.status === 'shipped' ? 'bg-blue-100 text-blue-700' :
@@ -565,7 +560,7 @@ export default function OrdersPage() {
           )}
         </div>
 
-        {/* --- PAGINATION CONTROLS (FOOTER) --- */}
+        {/* --- PAGINATION CONTROLS (WARNA FIX) --- */}
         {!searchTerm && (
           <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-center items-center gap-4">
              <button 
@@ -573,11 +568,11 @@ export default function OrdersPage() {
                disabled={currentPage === 1}
                className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50 transition"
              >
-               <ChevronLeft size={20} />
+               <ChevronLeft size={20} className="text-slate-900" />
              </button>
              
-             {/* Info Halaman */}
-             <span className="text-sm font-bold text-gray-600">
+             {/* Text Warna Slate-900 (Hitam Pekat) */}
+             <span className="text-sm font-bold text-slate-900">
                 Hal {currentPage} / {totalPages || 1}
              </span>
 
@@ -591,7 +586,7 @@ export default function OrdersPage() {
                           className={`w-8 h-8 rounded-lg font-bold text-sm flex items-center justify-center transition ${
                              currentPage === page 
                              ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
-                             : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
+                             : 'bg-white border border-gray-300 text-slate-900 hover:bg-gray-100' // FIXED: text-slate-900
                           }`}
                         >
                           {page}
@@ -609,7 +604,7 @@ export default function OrdersPage() {
                disabled={currentPage === (totalPages || 1)}
                className="p-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50 transition"
              >
-               <ChevronRight size={20} />
+               <ChevronRight size={20} className="text-slate-900" />
              </button>
           </div>
         )}
@@ -629,7 +624,6 @@ export default function OrdersPage() {
 
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               
-              {/* Header Info */}
               <div className="bg-blue-50 p-5 rounded-xl border border-blue-100 grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
                    <label className="text-xs font-bold text-blue-800 uppercase mb-1 flex items-center gap-1"><Hash size={14}/> No. Pesanan</label>

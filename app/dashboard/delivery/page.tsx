@@ -25,11 +25,10 @@ type OrderHistory = {
   maker_name?: string;
   receiver_name?: string;
   items?: any[];
-  status: string;         // Status Logistik
-  payment_status: string; // Status Bayar
+  status: string;         
+  payment_status: string; 
 }
 
-// Tipe untuk Selection Product (Checklist)
 type ProductSelection = Product & {
   isSelected: boolean;
   qty: number;
@@ -37,19 +36,16 @@ type ProductSelection = Product & {
 }
 
 export default function DeliveryPage() {
-  // State Data Master
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<ProductSelection[]>([]) 
   const [orders, setOrders] = useState<OrderHistory[]>([]) 
   const [loading, setLoading] = useState(true)
   
-  // --- STATE PAGINATION ---
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(10) // Tampilkan 10 data per halaman
+  const [itemsPerPage] = useState(10) 
   const [totalPages, setTotalPages] = useState(0)
   const [totalCount, setTotalCount] = useState(0)
 
-  // State Form Transaksi
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isEditing, setIsEditing] = useState(false) 
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -57,14 +53,12 @@ export default function DeliveryPage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
   const [searchProductTerm, setSearchProductTerm] = useState('') 
   
-  // State Input Detail Order
   const [customOrderNo, setCustomOrderNo] = useState('')
   const [customDate, setCustomDate] = useState('')
   const [taxRate, setTaxRate] = useState(0) 
   const [makerName, setMakerName] = useState('') 
   const [receiverName, setReceiverName] = useState('') 
 
-  // State Search History
   const [searchTerm, setSearchTerm] = useState('')
 
   useEffect(() => {
@@ -87,7 +81,6 @@ export default function DeliveryPage() {
     setSelectedCustomerId('')
     setIsEditing(false)
     setEditingId(null)
-    
     const resetProducts = products.map(p => ({ ...p, isSelected: false, qty: 1, customPrice: p.price }))
     setProducts(resetProducts)
   }
@@ -102,7 +95,7 @@ export default function DeliveryPage() {
     const { data: custData } = await supabase.from('customers').select('id, name, address')
     const { data: prodData } = await supabase.from('products').select('*').eq('is_active', true)
     
-    await fetchOrders(1) // Load halaman 1
+    await fetchOrders(1) 
 
     if (custData) setCustomers(custData)
     if (prodData) {
@@ -114,10 +107,8 @@ export default function DeliveryPage() {
     setLoading(false)
   }
 
-  // --- FETCH WITH PAGINATION (HYBRID LOGIC) ---
   const fetchOrders = async (page = 1, query = '') => {
     setLoading(true)
-    
     const from = (page - 1) * itemsPerPage
     const to = from + itemsPerPage - 1
 
@@ -132,7 +123,6 @@ export default function DeliveryPage() {
       .order('created_at', { ascending: false }) 
       .order('id', { ascending: false })         
     
-    // Jika tidak search, gunakan pagination server (range)
     if (!query) {
       supabaseQuery = supabaseQuery.range(from, to)
     } else {
@@ -143,8 +133,6 @@ export default function DeliveryPage() {
     
     if (data) {
       let finalData = data as any[]
-      
-      // Filter Search Client-side
       if (query) {
         finalData = finalData.filter(o => 
           o.order_no.toLowerCase().includes(query.toLowerCase()) || 
@@ -177,7 +165,6 @@ export default function DeliveryPage() {
     }
   }
 
-  // --- LOGIC CHECKLIST ---
   const toggleProductSelection = (id: number) => {
     setProducts(prev => prev.map(p => {
       if (p.id === id) return { ...p, isSelected: !p.isSelected }
@@ -209,7 +196,6 @@ export default function DeliveryPage() {
   const taxAmount = (subTotal * taxRate) / 100 
   const grandTotal = subTotal + taxAmount
 
-  // --- LOGIC EDIT ---
   const handleEditOrder = async (orderId: number) => {
     try {
       setLoading(true)
@@ -246,7 +232,6 @@ export default function DeliveryPage() {
       setIsEditing(true)
       setEditingId(orderId)
       setIsFormOpen(true)
-
     } catch (err: any) {
       alert(err.message)
     } finally {
@@ -254,7 +239,6 @@ export default function DeliveryPage() {
     }
   }
 
-  // --- SAVE ORDER (STATUS SHIPPED) ---
   const handleSaveOrder = async () => {
     if (!selectedCustomerId || selectedItems.length === 0 || !customOrderNo) {
       alert('Mohon lengkapi Data Pelanggan, Nomor Pesanan, dan minimal 1 Barang!')
@@ -269,7 +253,7 @@ export default function DeliveryPage() {
         customer_id: parseInt(selectedCustomerId),
         sales_id: user.id,
         doc_type: 'delivery_order',
-        status: 'shipped', // Default DO status = Shipped
+        status: 'shipped', 
         payment_status: isEditing ? undefined : 'unpaid', 
         total_amount: grandTotal, 
         tax_amount: taxAmount,    
@@ -304,7 +288,7 @@ export default function DeliveryPage() {
       if (itemsError) throw itemsError
 
       setIsFormOpen(false)
-      fetchOrders(currentPage) // Refresh
+      fetchOrders(currentPage) 
       if(savedOrderId) await generatePDF(savedOrderId)
 
     } catch (error: any) {
@@ -325,7 +309,6 @@ export default function DeliveryPage() {
     }
   }
 
-  // --- GENERATE PDF (SURAT JALAN) ---
   const generatePDF = async (orderId: number) => {
     try {
       const { data: order, error } = await supabase
@@ -338,6 +321,15 @@ export default function DeliveryPage() {
 
       const doc = new jsPDF({ format: 'a4', unit: 'mm' })
       
+      // --- LOGO FIX ---
+      if (appConfig.brandLogo) {
+        try {
+          doc.addImage(appConfig.brandLogo, 'PNG', 170, 10, 25, 25);
+        } catch (err) {
+          console.warn('Logo error', err);
+        }
+      }
+
       // KOP SURAT
       doc.setFontSize(18); doc.setFont('helvetica', 'bold');
       doc.text(appConfig.companyName + ' - DELIVERY', 14, 20) 
@@ -345,7 +337,6 @@ export default function DeliveryPage() {
       doc.text(appConfig.companyAddress, 14, 26)
       doc.text(appConfig.companyContact, 14, 31)
 
-      // JUDUL
       doc.setFontSize(16); doc.setFont('helvetica', 'bold');
       doc.text('DELIVERY ORDER/ SURAT JALAN', 105, 48, { align: 'center' })
       
@@ -437,7 +428,6 @@ export default function DeliveryPage() {
         </button>
       </div>
 
-      {/* --- LIST PESANAN --- */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-4 border-b border-gray-200 bg-gray-50 flex flex-col md:flex-row justify-between items-center gap-4">
           <h3 className="font-bold text-gray-900 flex items-center gap-2">
@@ -475,7 +465,6 @@ export default function DeliveryPage() {
                     <span>{order.customer?.name}</span>
                   </div>
 
-                  {/* STATUS BADGES */}
                   <div className="flex gap-2 mt-2">
                     <span className={`text-xs px-2 py-1 rounded-md font-bold flex items-center gap-1 ${
                       order.status === 'shipped' ? 'bg-blue-100 text-blue-700' :
@@ -515,7 +504,6 @@ export default function DeliveryPage() {
           )}
         </div>
 
-        {/* --- PAGINATION CONTROLS (FOOTER) --- */}
         {!searchTerm && totalPages > 1 && (
           <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-center items-center gap-4">
              <button 
@@ -561,7 +549,6 @@ export default function DeliveryPage() {
         
       </div>
 
-      {/* --- FORM MODAL (CHECKLIST STYLE) --- */}
       {isFormOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 md:p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl w-full max-w-4xl h-[95vh] flex flex-col shadow-2xl overflow-hidden border border-gray-200">
@@ -600,7 +587,6 @@ export default function DeliveryPage() {
                 </select>
               </div>
 
-              {/* LIST PRODUK (CHECKLIST) */}
               <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex justify-between items-center mb-4">
                   <h4 className="font-bold text-gray-900 flex items-center gap-2"><CheckSquare size={18}/> Pilih Produk</h4>
@@ -658,7 +644,6 @@ export default function DeliveryPage() {
                 </div>
               </div>
 
-              {/* Tanda Tangan */}
               <div className="grid grid-cols-2 gap-4">
                  <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nama Pembuat</label>
@@ -691,7 +676,6 @@ export default function DeliveryPage() {
           </div>
         </div>
       )}
-
     </div>
   )
 }
