@@ -1,4 +1,3 @@
-// app/dashboard/layout.tsx
 'use client'
 
 import { appConfig } from '@/lib/appConfig'
@@ -18,7 +17,8 @@ import {
   MapPin, 
   LogOut, 
   Menu,
-  BarChart3 // Icon Baru untuk Laporan
+  BarChart3,
+  QrCode // 1. Import Icon QrCode
 } from 'lucide-react'
 
 // Definisi Menu Lengkap
@@ -29,10 +29,12 @@ const menuItems = [
   { name: 'Pesanan (SO)', href: '/dashboard/orders', icon: ShoppingCart },
   { name: 'Pengiriman', href: '/dashboard/delivery', icon: Truck },
   { name: 'Faktur', href: '/dashboard/invoices', icon: Receipt },
-  { name: 'Laporan', href: '/dashboard/reports', icon: BarChart3 }, // <-- MENU BARU
+  { name: 'Laporan', href: '/dashboard/reports', icon: BarChart3 },
   { name: 'Pelanggan', href: '/dashboard/customers', icon: Users },
   { name: 'Target Sales', href: '/dashboard/targets', icon: Target },
   { name: 'Check Point', href: '/dashboard/visits', icon: MapPin },
+  // 2. Menu Baru untuk Admin
+  { name: 'Generator QR', href: '/dashboard/tools/qrcode', icon: QrCode }, 
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
