@@ -18,23 +18,27 @@ import {
   LogOut, 
   Menu,
   BarChart3,
-  QrCode // 1. Import Icon QrCode
+  QrCode
 } from 'lucide-react'
 
-// Definisi Menu Lengkap
-const menuItems = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Stock Barang', href: '/dashboard/stock', icon: Package },
-  { name: 'Penawaran', href: '/dashboard/quotation', icon: FileText },
-  { name: 'Pesanan (SO)', href: '/dashboard/orders', icon: ShoppingCart },
-  { name: 'Pengiriman', href: '/dashboard/delivery', icon: Truck },
-  { name: 'Faktur', href: '/dashboard/invoices', icon: Receipt },
-  { name: 'Laporan', href: '/dashboard/reports', icon: BarChart3 },
-  { name: 'Pelanggan', href: '/dashboard/customers', icon: Users },
-  { name: 'Target Sales', href: '/dashboard/targets', icon: Target },
-  { name: 'Check Point', href: '/dashboard/visits', icon: MapPin },
-  // 2. Menu Baru untuk Admin
-  { name: 'Generator QR', href: '/dashboard/tools/qrcode', icon: QrCode }, 
+// Definisi Menu Master
+const allMenuItems = [
+  // Common (Semua bisa lihat)
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['admin', 'sales'] },
+  
+  // Admin Only Features
+  { name: 'Stock Barang', href: '/dashboard/stock', icon: Package, roles: ['admin'] },
+  { name: 'Pesanan (SO)', href: '/dashboard/orders', icon: ShoppingCart, roles: ['admin'] },
+  { name: 'Pengiriman', href: '/dashboard/delivery', icon: Truck, roles: ['admin'] },
+  { name: 'Faktur', href: '/dashboard/invoices', icon: Receipt, roles: ['admin'] },
+  { name: 'Laporan', href: '/dashboard/reports', icon: BarChart3, roles: ['admin'] },
+  { name: 'Pelanggan', href: '/dashboard/customers', icon: Users, roles: ['admin'] },
+  { name: 'Generator QR', href: '/dashboard/tools/qrcode', icon: QrCode, roles: ['admin'] },
+
+  // Sales & Admin Features
+  { name: 'Penawaran', href: '/dashboard/quotation', icon: FileText, roles: ['admin', 'sales'] },
+  { name: 'Target Sales', href: '/dashboard/targets', icon: Target, roles: ['admin', 'sales'] },
+  { name: 'Check Point', href: '/dashboard/visits', icon: MapPin, roles: ['admin', 'sales'] },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -42,23 +46,50 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+  const [userRole, setUserRole] = useState<string | null>(null) // State untuk Role
+  const [loading, setLoading] = useState(true)
 
-  // Cek user login saat layout dimuat
+  // Cek user login & Role saat layout dimuat
   useEffect(() => {
-    const getUser = async () => {
+    const getUserAndRole = async () => {
+      // 1. Ambil User
       const { data: { user } } = await supabase.auth.getUser()
+      
       if (!user) {
-        router.replace('/login') // Tendang ke login kalau belum masuk
-      } else {
-        setUserEmail(user.email || 'Sales')
-      }
+        router.replace('/login')
+        return
+      } 
+      
+      setUserEmail(user.email || 'User')
+
+      // 2. Ambil Role dari tabel profiles
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      // Default role sales jika tidak ketemu
+      setUserRole(profile?.role || 'sales') 
+      setLoading(false)
     }
-    getUser()
+
+    getUserAndRole()
   }, [router])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.replace('/login')
+  }
+
+  // Filter Menu berdasarkan Role
+  const filteredMenu = allMenuItems.filter(item => 
+    userRole ? item.roles.includes(userRole) : false
+  )
+
+  if (loading) {
+    // Tampilan Loading sederhana saat cek role
+    return <div className="flex h-screen items-center justify-center bg-gray-50 text-blue-600">Memuat Sistem...</div>
   }
 
   return (
@@ -67,7 +98,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <aside className="hidden md:flex w-64 flex-col bg-white border-r border-gray-200 fixed h-full z-10">
         <div className="p-6 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            {/* LOGO (Jika ada di config) */}
             {appConfig.brandLogo && (
               <img 
                 src={appConfig.brandLogo} 
@@ -76,20 +106,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               />
             )}
             
-            {/* TEKS NAMA BRAND */}
             <div>
               <h1 className="text-xl font-bold text-blue-600 leading-tight">
                 {appConfig.brandName}
               </h1>
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-2">Sistem Distribusi</p>
+          <p className="text-xs text-gray-500 mt-2">
+            Role: <span className="font-bold uppercase text-blue-600">{userRole}</span>
+          </p>
         </div>
 
         <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-          {menuItems.map((item) => {
+          {filteredMenu.map((item) => {
             const Icon = item.icon
-            const isActive = pathname === item.href
+            const isActive = pathname.startsWith(item.href) // Updated logic for sub-routes
             return (
               <Link
                 key={item.href}
@@ -139,7 +170,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* --- MOBILE MENU OVERLAY --- */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-30 bg-white md:hidden flex flex-col pt-16 px-4">
-          {menuItems.map((item) => {
+          {filteredMenu.map((item) => {
              const Icon = item.icon
              return (
               <Link

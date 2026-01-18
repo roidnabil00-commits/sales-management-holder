@@ -31,26 +31,59 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Cek User Session
+  // 1. Cek User Session
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // --- LOGIKA PROTEKSI HALAMAN ---
+  const path = request.nextUrl.pathname
 
-  // 1. Jika User BELUM Login, tapi maksa masuk Dashboard -> Tendang ke Login
-  if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
+  // --- LOGIKA PROTEKSI LOGIN ---
+  
+  // Jika User BELUM Login, tapi maksa masuk Dashboard
+  if (!user && path.startsWith('/dashboard')) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // 2. Jika User SUDAH Login, tapi buka halaman Login -> Arahkan ke Dashboard
-  if (user && request.nextUrl.pathname === '/login') {
+  // Jika User SUDAH Login, tapi buka Login atau Home
+  if (user && (path === '/login' || path === '/')) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
-  // 3. Jika User SUDAH Login, tapi buka halaman Home (/) -> Arahkan ke Dashboard
-  if (user && request.nextUrl.pathname === '/') {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+  // --- LOGIKA RBAC (Role-Based Access Control) ---
+  
+  if (user && path.startsWith('/dashboard')) {
+    // Ambil Role User dari tabel profiles
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    const userRole = profile?.role || 'sales' // Default ke sales jika null
+
+    // DEFINISI AKSES
+    // Admin: Bebas kemana saja
+    // Sales: Terbatas
+    if (userRole === 'sales') {
+      // Daftar path yang DIIZINKAN untuk Sales
+      const allowedPaths = [
+        '/dashboard',           // Halaman utama dashboard (biasanya overview)
+        '/dashboard/visits',    // Visits
+        '/dashboard/quotation', // Quotation
+        '/dashboard/targets',   // Targets
+      ]
+
+      // Cek apakah path saat ini berawalan dengan path yang diizinkan
+      // Kita pakai .some() dan .startsWith() agar sub-route (misal /visits/add) juga kena
+      const isAllowed = allowedPaths.some(allowed => path.startsWith(allowed))
+
+      // Jika Sales mencoba masuk ke halaman TERLARANG (misal /stock atau /reports)
+      if (!isAllowed) {
+        // Tendang balik ke halaman dashboard utama atau halaman error
+        return NextResponse.redirect(new URL('/dashboard', request.url))
+      }
+    }
   }
 
   return response
@@ -58,13 +91,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - api/ (API routes - biarkan terbuka untuk chat AI)
-     */
     '/((?!_next/static|_next/image|favicon.ico|api/).*)',
   ],
 }
