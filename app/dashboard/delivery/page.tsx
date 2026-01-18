@@ -1,4 +1,3 @@
-// app/dashboard/delivery/page.tsx
 'use client'
 
 import { appConfig } from '@/lib/appConfig'
@@ -11,6 +10,7 @@ import {
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { toast } from 'sonner' // 1. Import Toast
 
 // --- TIPE DATA ---
 type Product = { id: number; name: string; price: number; unit: string; barcode: string | null }
@@ -233,15 +233,16 @@ export default function DeliveryPage() {
       setEditingId(orderId)
       setIsFormOpen(true)
     } catch (err: any) {
-      alert(err.message)
+      toast.error('Gagal memuat data: ' + err.message)
     } finally {
       setLoading(false)
     }
   }
 
   const handleSaveOrder = async () => {
+    // Validasi dengan Toast
     if (!selectedCustomerId || selectedItems.length === 0 || !customOrderNo) {
-      alert('Mohon lengkapi Data Pelanggan, Nomor Pesanan, dan minimal 1 Barang!')
+      toast.warning('Mohon lengkapi Data Pelanggan, Nomor Pesanan, dan minimal 1 Barang!')
       return
     }
 
@@ -287,12 +288,15 @@ export default function DeliveryPage() {
       const { error: itemsError } = await supabase.from('order_items').insert(orderItemsData)
       if (itemsError) throw itemsError
 
+      // Sukses
+      toast.success(isEditing ? 'Data pengiriman diperbarui!' : 'Surat Jalan berhasil dibuat!')
+
       setIsFormOpen(false)
       fetchOrders(currentPage) 
       if(savedOrderId) await generatePDF(savedOrderId)
 
     } catch (error: any) {
-      alert('Gagal simpan: ' + error.message)
+      toast.error('Gagal simpan: ' + error.message)
     }
   }
 
@@ -302,10 +306,11 @@ export default function DeliveryPage() {
       await supabase.from('order_items').delete().eq('order_id', id)
       const { error } = await supabase.from('orders').delete().eq('id', id)
       if(error) throw error
-      alert('Data berhasil dihapus.')
+      
+      toast.success('Data berhasil dihapus.')
       fetchOrders(currentPage)
     } catch (err: any) {
-      alert('Gagal hapus: ' + err.message)
+      toast.error('Gagal hapus: ' + err.message)
     }
   }
 
@@ -409,7 +414,7 @@ export default function DeliveryPage() {
       window.open(URL.createObjectURL(blob), '_blank');
 
     } catch (err: any) {
-      alert('Gagal cetak PDF: ' + err.message)
+      toast.error('Gagal cetak PDF: ' + err.message)
     }
   }
 

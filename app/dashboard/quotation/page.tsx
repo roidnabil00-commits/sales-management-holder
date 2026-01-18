@@ -4,10 +4,10 @@
 import { appConfig } from '@/lib/appConfig'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { FileText, Plus, Trash2, Printer, ArrowRightCircle, Calendar, Hash, Search, Save, CheckSquare, Square } from 'lucide-react'
+import { FileText, Plus, Trash2, Printer, ArrowRightCircle, CheckSquare, Square, Search } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-
+import { toast } from 'sonner' // 1. Import Toast
 
 // Tipe Data
 type Product = { id: number; name: string; price: number; unit: string }
@@ -17,7 +17,7 @@ type Quotation = {
   order_no: string; 
   customer: { name: string }; 
   total_amount: number; 
-  created_at: string; // Tanggal Surat
+  created_at: string;
   status: string;
 }
 
@@ -30,13 +30,13 @@ type ProductSelection = Product & {
 export default function QuotationPage() {
   const [quotations, setQuotations] = useState<Quotation[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [products, setProducts] = useState<ProductSelection[]>([]) // State Produk untuk Checklist
+  const [products, setProducts] = useState<ProductSelection[]>([]) 
   const [loading, setLoading] = useState(true)
   
   // State Form
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
-  const [searchProductTerm, setSearchProductTerm] = useState('') // Search di dalam Modal Checklist
+  const [searchProductTerm, setSearchProductTerm] = useState('') 
   
   // State Detail Surat
   const [subject, setSubject] = useState('Penawaran Harga Produk Bakery')
@@ -93,6 +93,7 @@ export default function QuotationPage() {
 
   const updateProductQty = (id: number, val: number) => {
     setProducts(prev => prev.map(p => {
+      // Validasi agar qty minimal 1
       if (p.id === id) return { ...p, qty: val > 0 ? val : 1 }
       return p
     }))
@@ -109,16 +110,17 @@ export default function QuotationPage() {
 
   // --- LOGIC SIMPAN PENAWARAN (DIRECT PRINT) ---
   const handleSaveQuotation = async () => {
+    // 1. Validasi Input (Ganti Alert jadi Toast Warning)
     if (!selectedCustomerId || selectedItems.length === 0 || !customOrderNo || !customDate) {
-      alert('Mohon lengkapi Data Pelanggan dan Pilih minimal 1 Produk!')
+      toast.warning('Mohon lengkapi Data Pelanggan dan Pilih minimal 1 Produk!')
       return
     }
 
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Sesi habis.')
+      if (!user) throw new Error('Sesi habis. Silakan login ulang.')
 
-      // 1. Simpan Header
+      // 2. Simpan Header
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .insert([{
@@ -134,7 +136,7 @@ export default function QuotationPage() {
 
       if (orderError) throw orderError
 
-      // 2. Simpan Detail Barang (Dari Checklist)
+      // 3. Simpan Detail Barang (Dari Checklist)
       const orderItemsData = selectedItems.map(item => ({
         order_id: orderData.id,
         product_id: item.id,
@@ -144,8 +146,7 @@ export default function QuotationPage() {
 
       await supabase.from('order_items').insert(orderItemsData)
 
-      // 3. Generate PDF Langsung (Tanpa Confirm, Tanpa Download)
-      // Kita buat object dummy agar bisa langsung diprint tanpa fetch ulang
+      // 4. Generate PDF Langsung
       const printData = {
         ...orderData,
         customer: customers.find(c => c.id === parseInt(selectedCustomerId)),
@@ -158,47 +159,56 @@ export default function QuotationPage() {
       
       await generateProposalPDF(printData, true) // True = Mode Popup Print
 
-      alert('Penawaran Berhasil Disimpan & Dicetak!')
+      // Notifikasi Sukses
+      toast.success('Penawaran Berhasil Disimpan & Dicetak!')
       setIsFormOpen(false)
-      fetchInitialData() // Refresh list
+      fetchInitialData() 
 
     } catch (error: any) {
-      alert('Gagal simpan: ' + error.message)
+      toast.error('Gagal simpan: ' + error.message)
     }
   }
 
   // --- LOGIC HAPUS ---
   const handleDeleteQuotation = async (id: number) => {
     if (!confirm('Yakin hapus penawaran ini? Data tidak bisa dikembalikan.')) return
+    
     try {
+      // Hapus item dulu (relation constraint)
       await supabase.from('order_items').delete().eq('order_id', id)
+      
+      // Baru hapus order
       const { error } = await supabase.from('orders').delete().eq('id', id)
       if (error) throw error
-      alert('Penawaran berhasil dihapus.')
+      
+      toast.success('Penawaran berhasil dihapus.')
       fetchInitialData()
     } catch (error: any) {
-      alert('Gagal hapus: ' + error.message)
+      toast.error('Gagal hapus: ' + error.message)
     }
   }
 
   // --- LOGIC CONVERT KE SO ---
   const convertToOrder = async (quoteId: number) => {
     if(!confirm('Deal? Ubah Penawaran ini menjadi Pesanan Penjualan (SO)?')) return;
+    
     try {
       const { error } = await supabase
         .from('orders')
         .update({ 
           doc_type: 'sales_order', 
           status: 'pending',
-          order_no: `SO-${Date.now().toString().slice(-6)}`,
+          order_no: `SO-${Date.now().toString().slice(-6)}`, // Generate No. SO Baru
           created_at: new Date().toISOString()
         })
         .eq('id', quoteId)
+      
       if (error) throw error
-      alert('Berhasil! Penawaran sudah menjadi Pesanan. Cek menu Pesanan (SO).')
+      
+      toast.success('Berhasil! Penawaran sudah menjadi Pesanan. Cek menu Pesanan (SO).')
       fetchInitialData()
     } catch (err: any) {
-      alert('Gagal convert: ' + err.message)
+      toast.error('Gagal convert: ' + err.message)
     }
   }
 
@@ -209,23 +219,25 @@ export default function QuotationPage() {
     if (isDirectObject) {
       order = input;
     } else {
-      // Kalau input ID, fetch dulu
       const { data, error } = await supabase
         .from('orders')
         .select(`*, customer:customers(*), items:order_items(*, product:products(*))`)
         .eq('id', input)
         .single()
-      if (error) return alert('Gagal ambil data PDF')
+      if (error) return toast.error('Gagal ambil data PDF')
       order = data;
     }
 
     const doc = new jsPDF()
     
+    // Header Surat
     doc.setFontSize(18); doc.setFont('helvetica', 'bold');
     doc.text(appConfig.companyName, 14, 20)
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     doc.text(appConfig.companyAddress, 14, 26)
     doc.text(appConfig.companyContact, 14, 31)
+    
+    // Logo (Optional)
     if (appConfig.brandLogo) {
        try {
          doc.addImage(appConfig.brandLogo, 'PNG', 170, 10, 25, 25);
@@ -234,7 +246,7 @@ export default function QuotationPage() {
        }
     }
 
-    // INFO
+    // Info Penerima
     const suratDate = new Date(order.created_at).toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})
     doc.text(`Jakarta, ${suratDate}`, 140, 45)
     
@@ -252,7 +264,7 @@ export default function QuotationPage() {
     doc.text('Dengan hormat,', 14, 80)
     doc.text('Bersama ini kami mengajukan penawaran harga untuk produk bakery dengan rincian sebagai berikut:', 14, 86)
 
-    // TABEL
+    // Tabel Barang
     const tableRows = order.items.map((item: any) => [
       item.product.name,
       `${item.qty} ${item.product.unit}`,
@@ -271,9 +283,11 @@ export default function QuotationPage() {
 
     const finalY = (doc as any).lastAutoTable.finalY + 10
 
+    // Footer Total
     doc.setFont('helvetica', 'bold')
     doc.text(`Total Penawaran: Rp ${order.total_amount.toLocaleString()}`, 140, finalY)
 
+    // Footer Notes
     doc.setFontSize(10)
     doc.text('Syarat dan Ketentuan:', 14, finalY + 15)
     doc.setFont('helvetica', 'normal')
@@ -285,7 +299,7 @@ export default function QuotationPage() {
     doc.text('Hormat Kami,', 14, finalY + 60)
     doc.text(appConfig.brandName + ' Team', 14, finalY + 85)
 
-    // POPUP PRINT
+    // Auto Print Popup
     doc.autoPrint();
     const blob = doc.output('blob');
     const url = URL.createObjectURL(blob);
@@ -341,7 +355,7 @@ export default function QuotationPage() {
         )}
       </div>
 
-      {/* FORM MODAL - FULLSCREEN AGAR LEGA */}
+      {/* FORM MODAL - FULLSCREEN */}
       {isFormOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 md:p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl w-full max-w-4xl h-[95vh] flex flex-col shadow-2xl overflow-hidden">
@@ -372,7 +386,7 @@ export default function QuotationPage() {
                 </div>
               </div>
 
-              {/* LIST PRODUK (CHECKLIST) - BAGIAN BARU */}
+              {/* LIST PRODUK (CHECKLIST) */}
               <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex justify-between items-center mb-4">
                   <h4 className="font-bold text-gray-900 flex items-center gap-2"><CheckSquare size={18}/> Pilih Produk</h4>
@@ -409,11 +423,11 @@ export default function QuotationPage() {
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-gray-500 font-bold">Qty:</span>
                           <input 
-                            type="number" min="1"
+                            type="number" min="1" required
                             className="w-16 border border-purple-300 rounded p-1 text-center font-bold text-gray-900 focus:ring-2 focus:ring-purple-500 outline-none"
                             value={product.qty}
                             onChange={(e) => updateProductQty(product.id, parseInt(e.target.value))}
-                            onClick={(e) => e.stopPropagation()} // Biar gak trigger checklist
+                            onClick={(e) => e.stopPropagation()} 
                           />
                         </div>
                       )}

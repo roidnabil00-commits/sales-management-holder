@@ -1,9 +1,9 @@
-// app/dashboard/customers/page.tsx
 'use client'
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { Search, Plus, Trash2, Edit, Save, X, Phone, MapPin, User } from 'lucide-react'
+import { toast } from 'sonner' // 1. Import Toast
 
 // Tipe Data
 type Customer = {
@@ -41,13 +41,18 @@ export default function CustomersPage() {
       .select('*')
       .order('created_at', { ascending: false })
     
-    if (error) console.error(error)
-    else setCustomers(data || [])
+    if (error) {
+      console.error(error)
+      toast.error('Gagal memuat data pelanggan.')
+    } else {
+      setCustomers(data || [])
+    }
     setLoading(false)
   }
 
   // --- LOGIC HAPUS BERSIH (FIXED) ---
   const handleDeleteCustomer = async (id: number) => {
+    // Confirm tetap pakai bawaan browser untuk keamanan ekstra (destruktif)
     if (!confirm('PERINGATAN KERAS:\nMenghapus pelanggan ini akan MENGHAPUS SEMUA DATA terkait:\n- Riwayat Kunjungan\n- Riwayat Pesanan/Faktur\n- Penawaran\n\nData tidak bisa dikembalikan. Yakin lanjut?')) return
 
     try {
@@ -88,11 +93,12 @@ export default function CustomersPage() {
         .eq('id', id)
       if (errCust) throw new Error('Gagal hapus pelanggan: ' + errCust.message)
 
-      alert('Pelanggan dan seluruh riwayatnya berhasil dihapus.')
+      // Notifikasi Sukses
+      toast.success('Pelanggan dan seluruh riwayatnya berhasil dihapus.')
       fetchCustomers()
 
     } catch (err: any) {
-      alert('Terjadi kesalahan: ' + err.message)
+      toast.error('Terjadi kesalahan: ' + err.message)
     } finally {
       setLoading(false)
     }
@@ -100,7 +106,10 @@ export default function CustomersPage() {
 
   // --- LOGIC SAVE (TAMBAH / EDIT) ---
   const handleSave = async () => {
-    if (!formData.name) return alert('Nama wajib diisi!')
+    if (!formData.name) {
+      toast.warning('Nama wajib diisi!')
+      return
+    }
 
     try {
       if (isEditing && editId) {
@@ -118,12 +127,12 @@ export default function CustomersPage() {
         if (error) throw error
       }
 
-      alert('Berhasil disimpan!')
+      toast.success('Data pelanggan berhasil disimpan!')
       setIsFormOpen(false)
       resetForm()
       fetchCustomers()
     } catch (err: any) {
-      alert('Gagal: ' + err.message)
+      toast.error('Gagal: ' + err.message)
     }
   }
 

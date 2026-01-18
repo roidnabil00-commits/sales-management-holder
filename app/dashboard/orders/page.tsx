@@ -1,4 +1,3 @@
-// app/dashboard/orders/page.tsx
 'use client'
 
 import { appConfig } from '@/lib/appConfig'
@@ -11,6 +10,7 @@ import {
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { toast } from 'sonner' // 1. Import Toast
 
 // --- TIPE DATA ---
 type Product = { id: number; name: string; price: number; unit: string; barcode: string | null }
@@ -266,7 +266,7 @@ export default function OrdersPage() {
       setIsFormOpen(true)
 
     } catch (err: any) {
-      alert(err.message)
+      toast.error('Gagal memuat data: ' + err.message)
     } finally {
       setLoading(false)
     }
@@ -274,8 +274,9 @@ export default function OrdersPage() {
 
   // --- LOGIC SIMPAN ORDER & DIRECT PRINT ---
   const handleSaveOrder = async () => {
+    // 2. Validasi Toast
     if (!selectedCustomerId || selectedItems.length === 0 || !customOrderNo) {
-      alert('Mohon lengkapi Data Pelanggan, Nomor Pesanan, dan minimal 1 Barang!')
+      toast.warning('Mohon lengkapi Data Pelanggan, Nomor Pesanan, dan minimal 1 Barang!')
       return
     }
 
@@ -323,25 +324,30 @@ export default function OrdersPage() {
       const { error: itemsError } = await supabase.from('order_items').insert(orderItemsData)
       if (itemsError) throw itemsError
 
+      // Notifikasi Sukses
+      toast.success(isEditing ? 'Pesanan berhasil diperbarui!' : 'Pesanan baru berhasil dibuat!')
+      
       setIsFormOpen(false)
       fetchOrders(currentPage) 
       if(savedOrderId) await generatePDF(savedOrderId)
 
     } catch (error: any) {
-      alert('Gagal simpan: ' + error.message)
+      toast.error('Gagal simpan: ' + error.message)
     }
   }
 
   const handleDeleteOrder = async (id: number) => {
+    // Confirm tetap pakai bawaan browser untuk keamanan ekstra
     if(!confirm("HAPUS PESANAN INI? \nData yang dihapus tidak bisa dikembalikan.")) return;
     try {
       await supabase.from('order_items').delete().eq('order_id', id)
       const { error } = await supabase.from('orders').delete().eq('id', id)
       if(error) throw error
-      alert('Data berhasil dihapus.')
+      
+      toast.success('Data berhasil dihapus.')
       fetchOrders(currentPage) 
     } catch (err: any) {
-      alert('Gagal hapus: ' + err.message)
+      toast.error('Gagal hapus: ' + err.message)
     }
   }
 
@@ -465,7 +471,7 @@ export default function OrdersPage() {
       window.open(url, '_blank');
 
     } catch (err: any) {
-      alert('Gagal cetak PDF: ' + err.message)
+      toast.error('Gagal cetak PDF: ' + err.message)
     }
   }
 

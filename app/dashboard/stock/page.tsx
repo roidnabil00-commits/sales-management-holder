@@ -1,9 +1,9 @@
-// app/dashboard/stock/page.tsx
 'use client'
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { Plus, Trash2, Search, Package, Barcode, AlertTriangle } from 'lucide-react'
+import { toast } from 'sonner' // 1. Import Toast
 
 // Tipe Data
 type Product = {
@@ -26,13 +26,13 @@ export default function StockPage() {
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isReturOpen, setIsReturOpen] = useState(false)
   
-  // State Form Produk (FIXED: price inisialisasi dengan 0, bukan string kosong)
+  // State Form Produk
   const [formData, setFormData] = useState({
     name: '',
     sku: '',
     barcode: '',
-    price: 0,         // <--- INI PERBAIKANNYA (Angka)
-    priceDisplay: '', // Ini tetap String untuk tampilan input
+    price: 0,
+    priceDisplay: '',
     unit: 'pcs',
     initialStock: ''
   })
@@ -57,13 +57,8 @@ export default function StockPage() {
 
   // --- LOGIC INPUT HARGA (Auto Format 10.000) ---
   const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // 1. Ambil value dan buang semua karakter non-angka
     const rawValue = e.target.value.replace(/\D/g, '')
-    
-    // 2. Simpan nilai asli (angka) ke state 'price'
     const numericValue = rawValue ? parseInt(rawValue) : 0
-    
-    // 3. Format jadi rupiah (tanpa simbol Rp biar enak editnya, cuma titik)
     const formattedDisplay = rawValue ? new Intl.NumberFormat('id-ID').format(numericValue) : ''
 
     setFormData({
@@ -84,8 +79,12 @@ export default function StockPage() {
       `)
       .order('id', { ascending: false })
     
-    if (error) console.error('Error fetching products:', error)
-    else setProducts((data as any) || [])
+    if (error) {
+      console.error('Error fetching products:', error)
+      toast.error('Gagal memuat data produk.')
+    } else {
+      setProducts((data as any) || [])
+    }
     setLoading(false)
   }
 
@@ -96,8 +95,10 @@ export default function StockPage() {
   // 2. Tambah Barang Baru
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Validasi
     if (!formData.name || !formData.price) {
-      alert('Nama dan Harga wajib diisi!')
+      toast.error('Nama dan Harga wajib diisi!')
       return
     }
 
@@ -109,7 +110,7 @@ export default function StockPage() {
           name: formData.name,
           sku: formData.sku || `SKU-${Date.now()}`,
           barcode: formData.barcode || null,
-          price: formData.price, // Sekarang aman karena tipenya number
+          price: formData.price,
           unit: formData.unit
         }])
         .select()
@@ -129,8 +130,9 @@ export default function StockPage() {
       
       if (invError) throw invError
 
-      alert('Barang berhasil disimpan!')
+      toast.success('Barang berhasil disimpan!')
       setIsFormOpen(false)
+      
       // Reset Form
       setFormData({ 
         name: '', sku: '', barcode: '', 
@@ -140,7 +142,7 @@ export default function StockPage() {
       fetchProducts()
 
     } catch (err: any) {
-      alert('Gagal: ' + err.message)
+      toast.error('Gagal: ' + err.message)
     }
   }
 
@@ -150,11 +152,11 @@ export default function StockPage() {
     const qty = parseInt(returData.damageQty)
     
     if (!qty || qty <= 0) {
-      alert('Jumlah tidak valid')
+      toast.warning('Jumlah retur tidak valid (minimal 1)')
       return
     }
     if (qty > returData.currentQty) {
-      alert('Stok gudang tidak cukup!')
+      toast.error('Stok gudang tidak cukup!')
       return
     }
 
@@ -178,27 +180,26 @@ export default function StockPage() {
            
          if(error) throw error
          
-         alert('Laporan Retur berhasil dicatat!')
+         toast.success('Laporan Retur berhasil dicatat!')
          setIsReturOpen(false)
          fetchProducts()
        }
     } catch (err: any) {
-      alert('Gagal update retur: ' + err.message)
+      toast.error('Gagal update retur: ' + err.message)
     }
   }
 
-   // 4. Hapus Barang (Update: Hapus Bersih sampai ke akar-akarnya)
+   // 4. Hapus Barang
   const handleDelete = async (id: number) => {
-    // Konfirmasi ganda biar gak salah hapus data penting
+    // Confirm bawaan browser (aman dan cepat)
     if (!confirm('PERHATIAN: Menghapus produk ini akan menghapus DATA STOK dan RIWAYAT PENJUALAN terkait. Anda yakin?')) {
       return
     }
 
     try {
-      setLoading(true) // Tampilkan loading biar user tau proses berjalan
+      setLoading(true) 
 
       // Tahap 1: Hapus Jejak di Transaksi (Order Items)
-      // Ini wajib dihapus duluan karena 'products' dikunci oleh tabel ini
       const { error: errOrders } = await supabase
         .from('order_items')
         .delete()
@@ -222,13 +223,12 @@ export default function StockPage() {
 
       if (errProd) throw new Error('Gagal hapus produk: ' + errProd.message)
 
-      // Sukses
-      alert('Produk berhasil dihapus total (termasuk riwayatnya). Sekarang SKU/Nama ini bisa dipakai lagi.')
+      toast.success('Produk berhasil dihapus total (termasuk riwayatnya).')
       fetchProducts()
 
     } catch (error: any) {
       console.error(error)
-      alert('Terjadi kesalahan: ' + error.message)
+      toast.error('Terjadi kesalahan: ' + error.message)
     } finally {
       setLoading(false)
     }
@@ -411,8 +411,8 @@ export default function StockPage() {
                       required 
                       className="w-full border border-gray-300 rounded-lg p-3 pl-10 text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none font-bold text-lg" 
                       placeholder="0"
-                      value={formData.priceDisplay} // Ini string berformat
-                      onChange={handlePriceChange}  // Ini yang handle perubahan
+                      value={formData.priceDisplay} 
+                      onChange={handlePriceChange}  
                     />
                   </div>
                 </div>
@@ -434,7 +434,9 @@ export default function StockPage() {
                 <label className="block text-xs font-bold text-blue-800 uppercase mb-1">Stok Awal di Gudang</label>
                 <div className="flex items-center gap-2">
                   <Package className="text-blue-600" size={20} />
-                  <input type="number" min="0" 
+                  <input 
+                    type="number" 
+                    min="0" // VALIDASI BARU: Tidak bisa minus
                     className="w-full border border-blue-200 rounded-lg p-2 text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none font-bold" 
                     placeholder="0"
                     value={formData.initialStock} onChange={e => setFormData({...formData, initialStock: e.target.value})} />

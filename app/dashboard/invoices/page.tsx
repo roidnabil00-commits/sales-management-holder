@@ -1,4 +1,3 @@
-// app/dashboard/invoices/page.tsx
 'use client'
 
 import { appConfig } from '@/lib/appConfig'
@@ -22,6 +21,7 @@ import {
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { toast } from 'sonner' // 1. Import Toast
 
 // --- TIPE DATA ---
 type Product = { id: number; name: string; price: number; unit: string; barcode: string | null }
@@ -131,6 +131,7 @@ export default function InvoicesPage() {
 
     if (error) {
       console.error(error)
+      toast.error('Gagal memuat data invoice.')
     } else {
       let filtered = data as any[]
       
@@ -275,11 +276,14 @@ export default function InvoicesPage() {
       
       await generateInvoicePDF(updatedOrder)
 
+      // Notifikasi Sukses
+      toast.success('Invoice berhasil disimpan & dicetak!')
+
       setIsFormOpen(false)
       fetchInvoices(currentPage) 
 
     } catch (err: any) {
-      alert('Gagal proses: ' + err.message)
+      toast.error('Gagal proses: ' + err.message)
     }
   }
 
@@ -374,6 +378,10 @@ export default function InvoicesPage() {
     if (!confirm('PERHATIAN: Hapus Invoice ini? Data penjualan akan hilang permanen.')) return
     await supabase.from('order_items').delete().eq('order_id', id)
     await supabase.from('orders').delete().eq('id', id)
+    
+    // Notifikasi Sukses
+    toast.success('Invoice berhasil dihapus.')
+    
     fetchInvoices(currentPage)
   }
 

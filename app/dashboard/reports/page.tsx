@@ -1,4 +1,3 @@
-// app/dashboard/reports/page.tsx
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -6,10 +5,11 @@ import { supabase } from '@/lib/supabaseClient'
 import { 
   FileText, Filter, Trash2, Calendar, Search, 
   Download, Eye, X, User, Clock, CheckCircle, Package,
-  ChevronLeft, ChevronRight 
+  ChevronLeft, ChevronRight, RefreshCw 
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { toast } from 'sonner' // 1. Import Toast
 
 export default function ReportsPage() {
   const [orders, setOrders] = useState<any[]>([])
@@ -18,14 +18,14 @@ export default function ReportsPage() {
   // Filter States
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0].slice(0, 7) + '-01') // Awal bulan
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]) // Hari ini
-  const [statusFilter, setStatusFilter] = useState('all') // all, pending, shipped, paid
+  const [statusFilter, setStatusFilter] = useState('all') 
   
   // Search State
   const [searchTerm, setSearchTerm] = useState('')
 
   // --- STATE PAGINATION ---
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(10) // 10 Data per halaman
+  const [itemsPerPage] = useState(10) 
 
   // Modal Detail State
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
@@ -37,55 +37,70 @@ export default function ReportsPage() {
   const fetchReports = async () => {
     setLoading(true)
     
-    // UPDATE QUERY: Tambahkan relation ke items & product untuk detail barang
-    let query = supabase
-      .from('orders')
-      .select(`
-        *,
-        customer:customers(name),
-        items:order_items(
-          qty, 
-          price, 
-          product:products(name, unit)
+    try {
+      // Base Query
+      let query = supabase
+        .from('orders')
+        .select(`
+          *,
+          customer:customers(name),
+          items:order_items(
+            qty, 
+            price, 
+            product:products(name, unit)
+          )
+        `)
+        .order('created_at', { ascending: false })
+      
+      // --- LOGIC SEARCHING DIPERBAIKI (SMART FILTER) ---
+      // Jika user mengetik search term, kita ABAIKAN filter tanggal (Global Search)
+      // Jika search kosong, baru kita patuh pada filter tanggal.
+      if (!searchTerm) {
+        query = query
+          .gte('created_at', startDate)
+          .lte('created_at', endDate + 'T23:59:59')
+      } else {
+        // Optional: Batasi hasil search global biar ga berat kalau data jutaan
+        query = query.limit(100) 
+      }
+      
+      const { data, error } = await query
+
+      if (error) throw error
+
+      let filteredData = data || []
+
+      // 1. Client-Side Filtering untuk Search Term (Case Insensitive)
+      // Supabase sulit melakukan filter OR antar tabel (orders & customers) dalam satu query simple,
+      // jadi kita filter di JS (aman untuk data < 10.000 row)
+      if (searchTerm) {
+        const term = searchTerm.toLowerCase()
+        filteredData = filteredData.filter((o: any) => 
+          o.order_no.toLowerCase().includes(term) || 
+          (o.customer?.name || '').toLowerCase().includes(term)
         )
-      `)
-      .gte('created_at', startDate)
-      .lte('created_at', endDate + 'T23:59:59')
-      .order('created_at', { ascending: false })
-    
-    const { data, error } = await query
+      }
 
-    if (error) {
-      console.error(error)
+      // 2. Logic Filter Status
+      if (statusFilter !== 'all') {
+        filteredData = filteredData.filter((o: any) => {
+          if (statusFilter === 'pending') return o.status === 'pending'
+          if (statusFilter === 'shipped') return o.status === 'shipped'
+          if (statusFilter === 'paid') return o.payment_status === 'paid'
+          if (statusFilter === 'unpaid') return o.payment_status === 'unpaid' && o.status === 'shipped'
+          return true
+        })
+      }
+
+      setOrders(filteredData)
+      setCurrentPage(1) // Reset ke halaman 1
+
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Gagal memuat laporan: ' + err.message)
+    } finally {
       setLoading(false)
-      return
     }
-
-    let filteredData = data || []
-
-    // 1. Logic Filter Status
-    if (statusFilter !== 'all') {
-      filteredData = filteredData.filter((o: any) => {
-        if (statusFilter === 'pending') return o.status === 'pending'
-        if (statusFilter === 'shipped') return o.status === 'shipped'
-        if (statusFilter === 'paid') return o.payment_status === 'paid'
-        if (statusFilter === 'unpaid') return o.payment_status === 'unpaid' && o.status === 'shipped'
-        return true
-      })
-    }
-
-    // 2. Logic Filter Search (No Order / Customer)
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase()
-      filteredData = filteredData.filter((o: any) => 
-        o.order_no.toLowerCase().includes(term) || 
-        (o.customer?.name || '').toLowerCase().includes(term)
-      )
-    }
-
-    setOrders(filteredData)
-    setCurrentPage(1) // Reset ke halaman 1 setiap kali filter berubah
-    setLoading(false)
   }
 
   // --- LOGIC PAGINATION CLIENT-SIDE ---
@@ -102,50 +117,68 @@ export default function ReportsPage() {
 
   // --- DELETE TRANSACTION ---
   const handleDelete = async (id: number) => {
+    // Confirm bawaan browser lebih aman untuk aksi destruktif
     if(!confirm("HAPUS DATA PERMANEN?\nIni akan menghapus Pesanan, Surat Jalan, dan Invoice sekaligus.")) return;
 
     try {
-      await supabase.from('order_items').delete().eq('order_id', id)
-      await supabase.from('orders').delete().eq('id', id)
-      alert('Transaksi berhasil dihapus.')
+      // Hapus item dulu (Child)
+      const { error: errItem } = await supabase.from('order_items').delete().eq('order_id', id)
+      if(errItem) throw errItem
+
+      // Hapus order (Parent)
+      const { error: errOrder } = await supabase.from('orders').delete().eq('id', id)
+      if(errOrder) throw errOrder
+
+      toast.success('Transaksi berhasil dihapus.')
       fetchReports() // Refresh data
     } catch (err: any) {
-      alert('Gagal hapus: ' + err.message)
+      toast.error('Gagal hapus: ' + err.message)
     }
   }
 
   // --- EXPORT PDF (REKAP LAPORAN) ---
   const handleExportPDF = () => {
-    const doc = new jsPDF()
-    
-    doc.text(`Laporan Penjualan Xander Systems`, 14, 20)
-    doc.setFontSize(10)
-    doc.text(`Periode: ${startDate} s/d ${endDate}`, 14, 26)
+    try {
+      const doc = new jsPDF()
+      
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold')
+      doc.text(`Laporan Penjualan Xander Systems`, 14, 20)
+      
+      doc.setFontSize(10); doc.setFont('helvetica', 'normal')
+      if(searchTerm) {
+        doc.text(`Keyword Pencarian: "${searchTerm}"`, 14, 26)
+      } else {
+        doc.text(`Periode: ${startDate} s/d ${endDate}`, 14, 26)
+      }
 
-    const tableRows = orders.map(o => [
-      new Date(o.created_at).toLocaleDateString('id-ID'),
-      o.order_no,
-      o.customer?.name,
-      o.status.toUpperCase(),
-      o.payment_status === 'paid' ? 'LUNAS' : 'BELUM',
-      `Rp ${o.total_amount.toLocaleString()}`
-    ])
+      const tableRows = orders.map(o => [
+        new Date(o.created_at).toLocaleDateString('id-ID'),
+        o.order_no,
+        o.customer?.name,
+        o.status.toUpperCase(),
+        o.payment_status === 'paid' ? 'LUNAS' : 'BELUM',
+        `Rp ${o.total_amount.toLocaleString()}`
+      ])
 
-    autoTable(doc, {
-      startY: 35,
-      head: [['Tanggal', 'No. Order', 'Pelanggan', 'Logistik', 'Keuangan', 'Total']],
-      body: tableRows,
-      theme: 'grid',
-      headStyles: { fillColor: [50, 50, 50] }
-    })
+      autoTable(doc, {
+        startY: 35,
+        head: [['Tanggal', 'No. Order', 'Pelanggan', 'Logistik', 'Keuangan', 'Total']],
+        body: tableRows,
+        theme: 'grid',
+        headStyles: { fillColor: [50, 50, 50] }
+      })
 
-    // Total Omzet
-    const totalOmzet = orders.reduce((acc, curr) => acc + curr.total_amount, 0)
-    const finalY = (doc as any).lastAutoTable.finalY + 10
-    doc.setFont('helvetica', 'bold')
-    doc.text(`Total Omzet Periode Ini: Rp ${totalOmzet.toLocaleString()}`, 14, finalY)
+      // Total Omzet
+      const totalOmzet = orders.reduce((acc, curr) => acc + curr.total_amount, 0)
+      const finalY = (doc as any).lastAutoTable.finalY + 10
+      doc.setFont('helvetica', 'bold')
+      doc.text(`Total Omzet: Rp ${totalOmzet.toLocaleString()}`, 14, finalY)
 
-    doc.save(`Laporan_${startDate}_${endDate}.pdf`)
+      doc.save(`Laporan_Sales_${new Date().toISOString().slice(0,10)}.pdf`)
+      toast.success('Laporan PDF berhasil diunduh')
+    } catch (err: any) {
+      toast.error('Gagal export PDF: ' + err.message)
+    }
   }
 
   return (
@@ -157,7 +190,7 @@ export default function ReportsPage() {
         </div>
         <button 
           onClick={handleExportPDF}
-          className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-green-700 font-bold shadow-sm"
+          className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-green-700 font-bold shadow-sm transition"
         >
           <Download size={18} /> Export PDF
         </button>
@@ -166,13 +199,13 @@ export default function ReportsPage() {
       {/* --- FILTER & SEARCH BAR --- */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
         
-        {/* Tanggal */}
-        <div className="md:col-span-2">
+        {/* Tanggal (Disable visualnya jika sedang Search agar user paham logicnya) */}
+        <div className={`md:col-span-2 transition ${searchTerm ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
           <label className="text-xs font-bold text-gray-500 block mb-1">Dari Tanggal</label>
           <input type="date" className="w-full border rounded-lg p-2 text-sm text-gray-900 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500" 
             value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         </div>
-        <div className="md:col-span-2">
+        <div className={`md:col-span-2 transition ${searchTerm ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
           <label className="text-xs font-bold text-gray-500 block mb-1">Sampai Tanggal</label>
            <input type="date" className="w-full border rounded-lg p-2 text-sm text-gray-900 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500" 
              value={endDate} onChange={(e) => setEndDate(e.target.value)} />
@@ -197,16 +230,21 @@ export default function ReportsPage() {
         {/* Search Bar */}
         <div className="md:col-span-3">
            <label className="text-xs font-bold text-gray-500 block mb-1">Cari No. Order / Pelanggan</label>
-           <div className="flex items-center gap-2 border rounded-lg p-2 bg-white ring-1 ring-gray-200 focus-within:ring-2 focus-within:ring-blue-500 transition">
-              <Search size={16} className="text-blue-500"/>
+           <div className={`flex items-center gap-2 border rounded-lg p-2 bg-white ring-1 ring-gray-200 focus-within:ring-2 focus-within:ring-blue-500 transition ${searchTerm ? 'ring-blue-500 bg-blue-50' : ''}`}>
+              <Search size={16} className={searchTerm ? "text-blue-600" : "text-blue-500"}/>
               <input 
                 type="text" 
-                placeholder="Contoh: SO-2026..." 
-                className="w-full outline-none text-sm text-gray-900 font-medium placeholder:font-normal"
+                placeholder="Global Search..." 
+                className="w-full outline-none text-sm text-gray-900 font-medium placeholder:font-normal bg-transparent"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && fetchReports()}
               />
+              {searchTerm && (
+                <button onClick={() => { setSearchTerm(''); fetchReports() }} className="text-gray-400 hover:text-gray-600">
+                  <X size={14}/>
+                </button>
+              )}
            </div>
         </div>
 
@@ -215,10 +253,18 @@ export default function ReportsPage() {
             onClick={fetchReports}
             className="w-full bg-blue-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-blue-700 h-[40px] flex justify-center items-center gap-2 shadow-md transition"
           >
-            <Search size={18} /> Cari
+            {loading ? <RefreshCw size={18} className="animate-spin"/> : <Search size={18} />} Cari
           </button>
         </div>
       </div>
+
+      {/* --- INFO MODE PENCARIAN --- */}
+      {searchTerm && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-3 text-blue-800 text-sm animate-in fade-in">
+          <div className="bg-blue-200 p-1 rounded-full"><Search size={14}/></div>
+          <p>Mode <b>Global Search</b> aktif. Menampilkan semua data yang cocok dengan <b>"{searchTerm}"</b> (Mengabaikan filter tanggal).</p>
+        </div>
+      )}
 
       {/* --- TABLE LAPORAN --- */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
