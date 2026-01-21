@@ -1,9 +1,7 @@
-import { appConfig } from '@/lib/appConfig';
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-// 1. Import Toaster
-import { Toaster } from 'sonner'; 
+import { Toaster } from 'sonner'; // Pastikan Toaster ada untuk notifikasi
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,9 +13,13 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// --- EDIT BAGIAN INI ---
 export const metadata: Metadata = {
-  title: appConfig.brandName,
-  description: `Sistem Manajemen Distribusi oleh ${appConfig.companyName}`,
+  title: "Xander Tech Systems | Integrated Sales Solution",
+  description: "Sistem Manajemen Penjualan, Stok, dan Kunjungan Sales berbasis AI.",
+  icons: {
+    icon: '/favicon.ico', // Pastikan punya favicon logo perusahaan
+  }
 };
 
 export default function RootLayout({
@@ -26,14 +28,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+    <html lang="id">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         {children}
-        {/* 2. Pasang Komponen Toaster disini. 
-            'richColors' membuat notifikasi error jadi merah & sukses jadi hijau otomatis */}
-        <Toaster position="top-center" richColors closeButton /> 
+        <Toaster position="top-center" richColors />
       </body>
     </html>
   );

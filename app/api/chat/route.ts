@@ -87,7 +87,7 @@ export async function POST(req: Request) {
       # JAWABAN COACH:
     `;
 
-    const modelName = "models/gemini-2.0-flash"; // Pakai Flash biar cepat & murah
+    const modelName = "models/gemini-2.5-flash"; // Pakai Flash biar cepat & murah
     const url = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${apiKey}`;
 
     const payload = {
