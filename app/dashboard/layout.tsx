@@ -37,7 +37,7 @@ const allMenuItems = [
   { name: 'Pelanggan', href: '/dashboard/customers', icon: Users, roles: ['admin'] },
   
   // --- MENU BARU (PCP MANAGER) ---
-  { name: 'Atur Rute (PCP)', href: '/dashboard/routes', icon: Calendar, roles: ['admin'] }, 
+  { name: 'Kunjungan (Track)', href: '/dashboard/routes', icon: Calendar, roles: ['admin'] }, 
   
   { name: 'Generator QR', href: '/dashboard/tools/qrcode', icon: QrCode, roles: ['admin'] },
 

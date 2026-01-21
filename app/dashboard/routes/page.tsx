@@ -1,356 +1,416 @@
-// app/dashboard/routes/page.tsx
-'use client';
+'use client'
 
-import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { 
-  User, MapPin, Trash2, Plus, Filter, 
-  Calendar, FileText, AlertCircle
-} from 'lucide-react';
-import { toast } from 'sonner';
+  Calendar, MapPin, Search, FileText, 
+  ExternalLink, Image as ImageIcon, X, Loader2, 
+  ChevronRight, ChevronLeft
+} from 'lucide-react'
+import { toast } from 'sonner' 
 
-export default function RouteManagerPage() {
-  const supabase = createClient();
+// Tipe Data
+type VisitLog = {
+  id: string
+  visit_time: string
+  sales_email: string
+  customer_name: string
+  customer_address: string
+  customer_district: string
+  location_lat: number
+  location_long: number
+  notes: string | null
+  photo_url: string | null
+}
+
+export default function SupervisionPage() {
+  const supabase = createClient()
   
-  // --- STATE DATA ---
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [routes, setRoutes] = useState<any[]>([]);
-  const [profiles, setProfiles] = useState<any[]>([]); 
+  // State Data
+  const [logs, setLogs] = useState<VisitLog[]>([])
+  const [loading, setLoading] = useState(true)
   
-  // --- STATE FILTER & UI ---
-  const [selectedDay, setSelectedDay] = useState(1); // 1 = Senin
-  const [selectedSalesId, setSelectedSalesId] = useState<string>(''); 
-  const [loading, setLoading] = useState(true);
+  // State Filter & Search
+  const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0])
+  const [searchTerm, setSearchTerm] = useState('')
+  
+  // State Pagination (BARU)
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10 
+  
+  // State Modal Detail
+  const [selectedLog, setSelectedLog] = useState<VisitLog | null>(null)
 
-  // --- STATE INPUT TAMBAHAN ---
-  const [priority, setPriority] = useState('Medium');
-  const [instructions, setInstructions] = useState('');
-
-  const days = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
-
-  // 1. Initial Load (Updated: Fetch Profiles dengan Role)
+  // 1. Fetch Data
   useEffect(() => {
-    const initData = async () => {
-      // Ambil User Login
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) setSelectedSalesId(user.id);
+    fetchLogs()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateFilter])
 
-      // Fetch Customers
-      const { data: custData } = await supabase
-        .from('customers')
-        .select('id, name, district, address')
-        .order('name', { ascending: true });
-      if (custData) setCustomers(custData);
-
-      // Fetch Sales Team (Profiles) - UPDATED
-      // Mengambil id, nama, email, dan role untuk keperluan filter/display
-      const { data: profData, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, role'); 
-      
-      if (profData && profData.length > 0) {
-        setProfiles(profData);
-      } else {
-        // Fallback jika profile kosong (misal belum setup SQL profiles)
-        console.warn("Profiles kosong atau error:", error);
-        if (user) {
-          setProfiles([{ id: user.id, full_name: 'Current User', email: user.email }]);
-        }
-      }
-    };
-    initData();
-  }, []);
-
-  // 2. Fetch Routes saat filter berubah
+  // Reset halaman ke 1 setiap kali user mengetik pencarian
   useEffect(() => {
-    if (selectedSalesId) {
-      fetchRoutes(selectedDay, selectedSalesId);
-    }
-  }, [selectedDay, selectedSalesId]);
+    setCurrentPage(1)
+  }, [searchTerm])
 
-  const fetchRoutes = async (day: number, salesId: string) => {
-    setLoading(true);
-    const { data } = await supabase
-      .from('route_templates')
-      .select('*, customers(name, district, address)')
-      .eq('day_of_week', day)
-      .eq('sales_id', salesId)
-      .order('created_at', { ascending: true });
-      
-    if (data) setRoutes(data);
-    setLoading(false);
-  };
-
-  // 3. Logic Tambah Rute
-  const addToRoute = async (customerId: number) => {
-    // Validasi Sales ID
-    if (!selectedSalesId) {
-      toast.error("Pilih Sales Person di dropdown atas terlebih dahulu.");
-      return;
-    }
-
-    // Tampilkan loading/proses
-    const toastId = toast.loading("Menyimpan rute...");
-
+  const fetchLogs = async () => {
+    setLoading(true)
     try {
-      const { error } = await supabase.from('route_templates').insert({
-        sales_id: selectedSalesId,   // ID Sales yang dipilih dari dropdown
-        customer_id: customerId,
-        day_of_week: selectedDay,
-        priority: priority,          // Menyimpan Prioritas
-        instructions: instructions   // Menyimpan Instruksi
-      });
+      const startOfDay = `${dateFilter}T00:00:00`
+      const endOfDay = `${dateFilter}T23:59:59`
 
-      if (error) throw error;
+      const { data, error } = await supabase
+        .from('view_visit_logs') 
+        .select('*')
+        .gte('visit_time', startOfDay)
+        .lte('visit_time', endOfDay)
+        .order('visit_time', { ascending: false })
 
-      toast.success("Berhasil ditambahkan!", { id: toastId });
-      setInstructions(''); // Reset input instruksi
-      fetchRoutes(selectedDay, selectedSalesId); // Refresh list
+      if (error) throw error
+      if (data) setLogs(data)
 
     } catch (err: any) {
-      console.error("Error Detail:", err);
-      toast.error(`Gagal: ${err.message || 'Terjadi kesalahan sistem'}`, { id: toastId });
+      toast.error("Gagal memuat laporan: " + err.message)
+    } finally {
+      setLoading(false)
     }
-  };
+  }
 
-  // 4. Logic Hapus Rute (FIXED: Ini yang sebelumnya hilang)
-  const removeFromRoute = async (id: string) => {
-    const toastId = toast.loading("Menghapus...");
+  // 2. Filter Logic
+  const filteredLogs = logs.filter(log => 
+    log.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    log.sales_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (log.customer_district && log.customer_district.toLowerCase().includes(searchTerm.toLowerCase()))
+  )
+
+  // 3. Pagination Logic (BARU)
+  const indexOfLastItem = currentPage * itemsPerPage
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage
+  const currentLogs = filteredLogs.slice(indexOfFirstItem, indexOfLastItem)
+  const totalPages = Math.ceil(filteredLogs.length / itemsPerPage)
+
+  // Helper Pagination Buttons
+  const getPageNumbers = () => {
+    const pages = []
+    // Tampilkan maksimal 5 tombol halaman agar tidak kepanjangan
+    let startPage = Math.max(1, currentPage - 2)
+    let endPage = Math.min(totalPages, startPage + 4)
     
-    try {
-      const { error } = await supabase
-        .from('route_templates')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-
-      toast.success("Rute dihapus", { id: toastId });
-      fetchRoutes(selectedDay, selectedSalesId); // Refresh list
-    } catch (err: any) {
-      toast.error("Gagal menghapus rute", { id: toastId });
-      console.error(err);
+    if (endPage - startPage < 4) {
+      startPage = Math.max(1, endPage - 4)
     }
-  };
+
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i)
+    }
+    return pages
+  }
+
+  // Helper Formatter
+  const formatTime = (isoString: string) => {
+    return new Date(isoString).toLocaleTimeString('id-ID', {
+      hour: '2-digit', minute: '2-digit'
+    }) + ' WIB'
+  }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto font-sans text-slate-900">
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
       
-      {/* --- HEADER SECTION --- */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 border-b border-slate-200 pb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Route Management</h1>
-          <p className="text-slate-600 mt-1">Pengaturan jadwal kunjungan rutin (Permanent Call Plan).</p>
-        </div>
-
-        {/* Sales Person Selector */}
-        <div className="w-full md:w-auto bg-slate-50 p-4 rounded-lg border border-slate-200">
-          <label className="block text-xs font-bold uppercase text-slate-500 mb-2">
-            Assign Route To (Pilih Sales)
-          </label>
-          <div className="flex items-center gap-3">
-            <User className="text-slate-400" size={20} />
-            <select 
-              value={selectedSalesId} 
-              onChange={(e) => setSelectedSalesId(e.target.value)}
-              className="bg-white border border-slate-300 text-slate-900 text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 min-w-[250px]"
-            >
-              {profiles.map(p => (
-                <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* --- DAY TABS --- */}
-      <div className="mb-8">
-        <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg overflow-x-auto border border-slate-200">
-          {days.map((day, idx) => {
-            const isActive = selectedDay === idx + 1;
-            return (
-              <button
-                key={idx}
-                onClick={() => setSelectedDay(idx + 1)}
-                className={`
-                  flex-1 px-4 py-2.5 text-sm font-semibold rounded-md transition-all whitespace-nowrap
-                  ${isActive 
-                    ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200' 
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
-                  }
-                `}
-              >
-                {day}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
-        {/* --- LEFT COLUMN: INPUT & CUSTOMER LIST --- */}
-        <div className="lg:col-span-5 space-y-6">
-          
-          {/* Configuration Panel */}
-          <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
-              <Filter size={18} /> Konfigurasi Input
-            </h3>
+      {/* HEADER & CONTROLS */}
+      <div className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Prioritas Kunjungan</label>
-                <select 
-                  value={priority} 
-                  onChange={(e) => setPriority(e.target.value)}
-                  className="w-full border border-slate-300 rounded-md p-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                >
-                  <option value="High">High (Prioritas Tinggi)</option>
-                  <option value="Medium">Medium (Standar)</option>
-                  <option value="Low">Low (Prioritas Rendah)</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Instruksi / Catatan Khusus</label>
-                <input 
-                  type="text" 
-                  value={instructions}
-                  onChange={(e) => setInstructions(e.target.value)}
-                  placeholder="Contoh: Tagih invoice, Cek stok display..."
-                  className="w-full border border-slate-300 rounded-md p-2.5 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-400"
-                />
-              </div>
+            <div>
+              <h1 className="text-xl font-black text-slate-800 tracking-tight">Laporan Kunjungan</h1>
+              <p className="text-sm font-medium text-slate-500">Rekapitulasi aktivitas sales & validasi lapangan.</p>
             </div>
-          </div>
 
-          {/* Customer List */}
-          <div className="bg-white rounded-lg border border-slate-200 shadow-sm flex flex-col h-[600px]">
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800">Customer Database</h3>
-              <span className="text-xs font-semibold bg-slate-200 text-slate-700 px-2 py-1 rounded">
-                Total: {customers.length}
-              </span>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              {customers.map((cust) => (
-                <div key={cust.id} className="flex justify-between items-center p-3 hover:bg-slate-50 border border-transparent hover:border-slate-200 rounded-md transition-all group">
-                  <div className="overflow-hidden">
-                    <div className="font-semibold text-slate-900 text-sm truncate">{cust.name}</div>
-                    <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5 truncate">
-                      <MapPin size={12} className="text-slate-400" /> 
-                      {cust.district || 'No District'} 
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => addToRoute(cust.id)}
-                    className="flex-shrink-0 bg-white border border-slate-300 text-slate-700 hover:bg-blue-600 hover:text-white hover:border-blue-600 px-3 py-1.5 rounded text-xs font-semibold transition-colors flex items-center gap-1"
-                  >
-                    <Plus size={14} /> Add
-                  </button>
+            <div className="flex flex-col sm:flex-row gap-3">
+                {/* Date Picker */}
+                <div className="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-lg border border-slate-200">
+                    <Calendar size={16} className="text-slate-500"/>
+                    <input 
+                      type="date" 
+                      className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer"
+                      value={dateFilter}
+                      onChange={(e) => setDateFilter(e.target.value)}
+                    />
                 </div>
-              ))}
+
+                {/* Search Bar */}
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16}/>
+                    <input 
+                      type="text" 
+                      placeholder="Cari Sales / Toko..." 
+                      className="pl-9 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition w-full sm:w-64"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
             </div>
+
           </div>
         </div>
+      </div>
 
-        {/* --- RIGHT COLUMN: ACTIVE ROUTE LIST --- */}
-        <div className="lg:col-span-7">
-          <div className="bg-white rounded-lg border border-slate-200 shadow-sm min-h-[600px] flex flex-col">
-            <div className="p-5 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-bold text-lg text-slate-900">Jadwal Hari {days[selectedDay-1]}</h2>
-                <p className="text-sm text-slate-500">Daftar kunjungan yang telah dijadwalkan.</p>
-              </div>
-              <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 px-3 py-1.5 rounded border border-blue-100">
-                <Calendar size={16} />
-                <span className="font-semibold">Total Stops: {routes.length}</span>
-              </div>
-            </div>
-
-            <div className="flex-1 p-0 overflow-x-auto">
+      {/* MAIN CONTENT */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        
+        {loading ? (
+           <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+             <Loader2 size={40} className="animate-spin mb-4 text-blue-600"/>
+             <span className="text-sm font-bold">Sinkronisasi Data...</span>
+           </div>
+        ) : filteredLogs.length === 0 ? (
+           <div className="text-center py-24 bg-white rounded-xl border border-slate-200 border-dashed">
+             <div className="bg-slate-50 p-4 rounded-full inline-block mb-3">
+                <FileText size={32} className="text-slate-400"/>
+             </div>
+             <h3 className="text-slate-700 font-bold mb-1">Data Kosong</h3>
+             <p className="text-slate-500 text-sm">Tidak ada laporan kunjungan yang sesuai filter.</p>
+           </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+            {/* Tabel */}
+            <div className="overflow-x-auto flex-1">
               <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold">
-                  <tr>
-                    <th className="px-6 py-3 border-b border-slate-200 w-16 text-center">No</th>
-                    <th className="px-6 py-3 border-b border-slate-200">Customer Info</th>
-                    <th className="px-6 py-3 border-b border-slate-200 w-48">Instruksi & Prioritas</th>
-                    <th className="px-6 py-3 border-b border-slate-200 w-24 text-center">Aksi</th>
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
+                    <th className="px-6 py-4">Waktu</th>
+                    <th className="px-6 py-4">Petugas Sales</th>
+                    <th className="px-6 py-4">Nama Toko & Area</th>
+                    <th className="px-6 py-4 text-center">Bukti</th>
+                    <th className="px-6 py-4 text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {loading ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-slate-500">
-                        Memuat data jadwal...
+                  {currentLogs.map((log) => ( // MENGGUNAKAN currentLogs (Sliced)
+                    <tr 
+                      key={log.id} 
+                      onClick={() => setSelectedLog(log)}
+                      className="hover:bg-blue-50/50 cursor-pointer transition-colors group"
+                    >
+                      {/* Waktu */}
+                      <td className="px-6 py-4 whitespace-nowrap w-[150px]">
+                        <span className="text-sm font-bold text-slate-700 font-mono bg-slate-100 px-2 py-1 rounded">
+                            {formatTime(log.visit_time)}
+                        </span>
                       </td>
-                    </tr>
-                  ) : routes.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center">
-                        <div className="flex flex-col items-center justify-center text-slate-400">
-                          <FileText size={48} className="mb-3 opacity-20" />
-                          <p className="font-medium text-slate-600">Belum ada jadwal.</p>
-                          <p className="text-sm">Pilih customer di panel kiri untuk menambahkan.</p>
-                        </div>
+
+                      {/* Sales */}
+                      <td className="px-6 py-4 whitespace-nowrap w-[250px]">
+                         <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                                {log.sales_email.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                                <p className="text-sm font-bold text-slate-800">{log.sales_email.split('@')[0]}</p>
+                                <p className="text-[10px] font-medium text-slate-400 uppercase">Sales Executive</p>
+                            </div>
+                         </div>
                       </td>
-                    </tr>
-                  ) : (
-                    routes.map((route, idx) => (
-                      <tr key={route.id} className="hover:bg-slate-50 group transition-colors">
-                        <td className="px-6 py-4 text-center text-slate-500 font-medium">
-                          {idx + 1}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="font-semibold text-slate-900">{route.customers?.name}</div>
-                          <div className="text-xs text-slate-500 mt-1 truncate max-w-[200px]">
-                            {route.customers?.address || route.customers?.district}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 align-top">
-                          <div className="flex flex-col gap-2">
-                            {/* Priority Badge */}
-                            <span className={`
-                              inline-flex w-fit items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border
-                              ${route.priority === 'High' ? 'bg-red-50 text-red-700 border-red-200' : 
-                                route.priority === 'Low' ? 'bg-slate-100 text-slate-600 border-slate-200' : 
-                                'bg-blue-50 text-blue-700 border-blue-200'}
-                            `}>
-                              {route.priority || 'Medium'}
-                            </span>
-                            
-                            {/* Instructions Text */}
-                            {route.instructions ? (
-                              <div className="flex items-start gap-1.5 text-xs text-slate-600">
-                                <AlertCircle size={12} className="mt-0.5 flex-shrink-0 text-slate-400" />
-                                <span className="italic">{route.instructions}</span>
-                              </div>
-                            ) : (
-                              <span className="text-xs text-slate-300 italic">- Tidak ada instruksi -</span>
+
+                      {/* Toko */}
+                      <td className="px-6 py-4">
+                         <p className="text-sm font-bold text-slate-800 line-clamp-1">{log.customer_name}</p>
+                         <div className="flex items-center gap-1 text-xs text-slate-500 mt-0.5">
+                            <MapPin size={12} className="shrink-0"/>
+                            <span className="truncate max-w-[250px]">{log.customer_address}</span>
+                            {log.customer_district && (
+                                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold text-[10px] shrink-0">
+                                    {log.customer_district}
+                                </span>
                             )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <button 
-                            onClick={() => removeFromRoute(route.id)}
-                            className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-2 rounded transition-colors"
-                            title="Hapus Rute"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                         </div>
+                      </td>
+
+                      {/* Indikator Bukti */}
+                      <td className="px-6 py-4 text-center w-[100px]">
+                         <div className="flex items-center justify-center gap-2">
+                            {log.photo_url ? (
+                                <span className="text-green-600 bg-green-50 p-1.5 rounded-md" title="Foto Tersedia">
+                                    <ImageIcon size={16}/>
+                                </span>
+                            ) : (
+                                <span className="text-slate-300 bg-slate-50 p-1.5 rounded-md">
+                                    <ImageIcon size={16}/>
+                                </span>
+                            )}
+                            {log.location_lat ? (
+                                <span className="text-blue-600 bg-blue-50 p-1.5 rounded-md" title="GPS Terkunci">
+                                    <MapPin size={16}/>
+                                </span>
+                            ) : (
+                                <span className="text-slate-300 bg-slate-50 p-1.5 rounded-md">
+                                    <MapPin size={16}/>
+                                </span>
+                            )}
+                         </div>
+                      </td>
+
+                      {/* Tombol Aksi */}
+                      <td className="px-6 py-4 text-right w-[80px]">
+                         <button className="text-slate-400 hover:text-blue-600 hover:bg-blue-100 p-2 rounded-full transition">
+                            <ChevronRight size={20}/>
+                         </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
 
+            {/* --- PAGINATION CONTROLS (FOOTER) --- */}
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+                
+                {/* Info Text */}
+                <span className="text-xs font-bold text-slate-500">
+                    Menampilkan {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, filteredLogs.length)} dari {filteredLogs.length} data
+                </span>
+
+                {/* Tombol Angka */}
+                {totalPages > 1 && (
+                    <div className="flex items-center gap-1">
+                        <button 
+                            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                            disabled={currentPage === 1}
+                            className="p-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed text-slate-600 transition"
+                        >
+                            <ChevronLeft size={16}/>
+                        </button>
+
+                        {getPageNumbers().map(number => (
+                            <button
+                                key={number}
+                                onClick={() => setCurrentPage(number)}
+                                className={`w-9 h-9 flex items-center justify-center rounded-lg text-xs font-bold transition ${
+                                    currentPage === number
+                                    ? 'bg-blue-600 text-white border border-blue-600 shadow-sm'
+                                    : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
+                                }`}
+                            >
+                                {number}
+                            </button>
+                        ))}
+
+                        <button 
+                            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                            disabled={currentPage === totalPages}
+                            className="p-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed text-slate-600 transition"
+                        >
+                            <ChevronRight size={16}/>
+                        </button>
+                    </div>
+                )}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* --- MODAL POP-UP DETAIL --- */}
+      {selectedLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh]">
+                
+                {/* KOLOM KIRI: FOTO (Dominan) */}
+                <div className="w-full md:w-1/2 bg-black flex items-center justify-center relative min-h-[300px] group bg-pattern">
+                    {selectedLog.photo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img 
+                            src={selectedLog.photo_url} 
+                            alt="Bukti Kunjungan" 
+                            className="w-full h-full object-contain"
+                        />
+                    ) : (
+                        <div className="text-slate-500 flex flex-col items-center">
+                            <ImageIcon size={48} className="opacity-50 mb-2"/>
+                            <span className="text-sm font-medium">Tidak ada foto bukti</span>
+                        </div>
+                    )}
+                    
+                    {/* Overlay Info Foto */}
+                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent text-white">
+                        <p className="text-xs font-bold opacity-80 uppercase tracking-wider">Waktu Upload</p>
+                        <p className="font-mono text-sm">{new Date(selectedLog.visit_time).toLocaleString('id-ID')}</p>
+                    </div>
+                </div>
+
+                {/* KOLOM KANAN: INFO DETAIL */}
+                <div className="w-full md:w-1/2 flex flex-col bg-white">
+                    
+                    {/* Header Modal */}
+                    <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-start">
+                        <div>
+                            <h2 className="text-lg font-black text-slate-800">Detail Kunjungan</h2>
+                            <p className="text-xs text-slate-500 font-bold">ID: {selectedLog.id.slice(0,8)}...</p>
+                        </div>
+                        <button 
+                            onClick={() => setSelectedLog(null)}
+                            className="text-slate-400 hover:text-red-500 bg-slate-100 hover:bg-red-50 p-2 rounded-full transition"
+                        >
+                            <X size={20}/>
+                        </button>
+                    </div>
+
+                    {/* Content Info */}
+                    <div className="p-6 space-y-6 overflow-y-auto flex-1">
+                        
+                        {/* Info Sales */}
+                        <div className="flex items-center gap-4 bg-blue-50 p-4 rounded-xl border border-blue-100">
+                            <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-lg shadow-md">
+                                {selectedLog.sales_email.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-blue-600 uppercase mb-0.5">Dilaporkan Oleh</p>
+                                <p className="font-bold text-slate-900">{selectedLog.sales_email}</p>
+                            </div>
+                        </div>
+
+                        {/* Info Toko */}
+                        <div>
+                            <h3 className="text-sm font-black text-slate-800 uppercase mb-3 flex items-center gap-2">
+                                <FileText size={16}/> Informasi Toko
+                            </h3>
+                            <div className="pl-2 border-l-2 border-slate-200 space-y-2">
+                                <div>
+                                    <p className="text-xs text-slate-500 font-medium">Nama Toko</p>
+                                    <p className="text-sm font-bold text-slate-800">{selectedLog.customer_name}</p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-slate-500 font-medium">Alamat</p>
+                                    <p className="text-sm text-slate-700">{selectedLog.customer_address}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Catatan */}
+                        <div>
+                            <h3 className="text-sm font-black text-slate-800 uppercase mb-2">Catatan Lapangan</h3>
+                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm text-slate-700 italic">
+                                "{selectedLog.notes || 'Tidak ada catatan tambahan.'}"
+                            </div>
+                        </div>
+
+                    </div>
+
+                    {/* Footer / Actions */}
+                    <div className="p-6 border-t border-slate-100 bg-slate-50">
+                        <a 
+                            href={`https://www.google.com/maps/search/?api=1&query=${selectedLog.location_lat},${selectedLog.location_long}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center justify-center gap-2 w-full bg-white border-2 border-slate-200 text-slate-700 hover:border-blue-500 hover:text-blue-600 py-3 rounded-xl font-bold transition shadow-sm"
+                        >
+                            <ExternalLink size={18}/> Buka Lokasi GPS (Google Maps)
+                        </a>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+      )}
+
     </div>
-  );
+  )
 }
